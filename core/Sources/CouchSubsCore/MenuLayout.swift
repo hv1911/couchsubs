@@ -14,8 +14,9 @@ import Foundation
 /// - **A, yanına yaz (varsayılan):** her satırın Türkçesi İngilizcesinin hemen yanına, koyu zeminli etikete (`label`)
 ///   yazılır: sola yaslı satırda sağına, sağa yaslı satırda (tuş çubuğu) soluna; satırın simgesi ve komşu yazılar
 ///   örtülmez. Yanına sığmayan etiket (sekme şeridi, sıkışık tuş çubuğu) altına, olmazsa üstüne yazılır; şeridin bir
-///   sekmesi altına yazıldıysa yakınındaki öbür sekmeler de altına yazılır (şerit bir bütün). Hiçbir yere sığmayan satır
-///   örtülür. Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
+///   sekmesi altına yazıldıysa öbür sekmeler de altına, biri hiçbir yere sığmazsa şeridin hepsi örtülür (şerit bir bütün).
+///   Listede Türkçeler tek sütunda başlar (sola yaslı listede en uzun satırın sağında). Hiçbir yere sığmayan satır örtülür.
+///   Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
 ///   resmiyle ikiz kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı
 ///   kartla hizalı başka yazılar) kartın satırları da yanına yazılır.
 /// - İki biçimde de satırın üstüne/altına küçük yazma, haritaya uzak ikiz kutu ve iki satırı tek kutuda birleştirme olmaz;
@@ -50,6 +51,8 @@ public enum MenuLayout {
     public static let cardGapLines = 0.3
     /// Kart dışı bir yazının sol kenarı kartınkine bu kadar yakınsa (satır yüksekliğinin katı) kart bir listenin parçasıdır.
     public static let columnLines = 1.0
+    /// Alt alta iki satır bu kadar (satır yüksekliğinin katı) aralıkla aynı listenin sütunundadır.
+    public static let columnGapLines = 1.5
 
     /// Menüdeki çizimler ayardaki biçime kilitlenir. `cards`: görev kartlarının parçaları (her kart için `paints`
     /// sıraları); `cover`: B (üstünü ört), false: A (yanına yaz). `portrait`: ikiz kurulacak kartın parçalarında kişi
@@ -65,7 +68,11 @@ public enum MenuLayout {
         var done = Set<Int>()
         var twins: [TextBox] = []
         for card in cards {
-            let card = card.filter { $0 >= 0 && $0 < paints.count && !done.contains($0) }
+            // Kutusu boş (genişliği ya da yüksekliği olmayan) parça ikize girmez.
+            let card = card.filter {
+                $0 >= 0 && $0 < paints.count && !done.contains($0)
+                    && paints[$0].cover.right - paints[$0].cover.left > 1e-9 && paints[$0].cover.bottom - paints[$0].cover.top > 1e-9
+            }
             guard !card.isEmpty,
                   let made = cardTwin(card, paints: paints, targets: targets, taken: taken, twins: twins, aspect: aspect,
                                       portrait: portrait)
@@ -82,22 +89,144 @@ public enum MenuLayout {
             result[i] = paint
             if below { vertical.insert(i) }
         }
-        // Şerit bir bütün: aynı satırda yakınındaki bir yazı altına/üstüne yazıldıysa yanına yazılan da oraya yazılır
-        // (sekme şeridinde son sekmenin Türkçesi yanında, öbürleri altında kalıyordu).
-        for i in paints.indices where !done.contains(i) && !vertical.contains(i) && result[i].mode == .beside {
-            let c = paints[i].cover
-            let lineX = max(1e-6, targets[i].lineHeight) / max(0.1, aspect)
-            let strip = vertical.contains { j in
-                let o = paints[j].cover
-                return overlapY(c, o) >= sameRow * min(c.bottom - c.top, o.bottom - o.top)
-                    && max(0, max(taken[i].left, taken[j].left) - min(taken[i].right, taken[j].right)) <= stripGapLines * lineX
+        let free = paints.indices.filter { !done.contains($0) }
+        // Şerit bir bütün: aynı satırda yakın yazılar (sekme şeridi, tuş çubuğu) tek biçimde çizilir. Hepsi yanına sığıyorsa
+        // yanına; değilse hepsi altına/üstüne; biri de sığmazsa hepsi örtülür (şeritte kimi Türkçe yanında, kimi altında, kimi
+        // örtülü kalıyordu).
+        for strip in strips(free, paints: paints, targets: targets, taken: taken, aspect: aspect) {
+            if strip.count < 2 || strip.allSatisfy({ result[$0].mode == .beside && !vertical.contains($0) }) { continue }
+            let tried = strip.map { beside($0, paints: paints, targets: targets, taken: taken, twins: twins, aspect: aspect,
+                                           base: base[$0], side: false) }
+            let below = tried.allSatisfy { $0.1 }
+            for (k, i) in strip.enumerated() {
+                result[i] = below ? tried[k].0 : base[i]
+                if below { vertical.insert(i) } else { vertical.remove(i) }
             }
-            guard strip else { continue }
-            let (paint, below) = beside(i, paints: paints, targets: targets, taken: taken, twins: twins, aspect: aspect,
-                                        base: base[i], side: false)
-            if below { result[i] = paint }
+        }
+        // Liste bir sütun: alt alta, aynı yana yaslı satırların yanına yazılan Türkçeleri tek sütunda başlar (sola yaslı
+        // listede en uzun satırın sağında, sağa yaslı listede en uzun satırın solunda). Bir satıra orada yer yoksa liste
+        // her satırın yanında kalır.
+        let side = free.filter { result[$0].mode == .beside && !vertical.contains($0) && result[$0].spot != nil }
+        for right in [false, true] {
+            let members = side.filter { (targets[$0].align == .right) == right }
+                .sorted { (paints[$0].cover.top, $0) < (paints[$1].cover.top, $1) }
+            var used = Set<Int>()
+            for start in members where !used.contains(start) {
+                used.insert(start)
+                var column = [start]
+                for b in members where !used.contains(b) {
+                    let last = column[column.count - 1]
+                    let line = max(targets[last].lineHeight, targets[b].lineHeight)
+                    let edgeA = right ? taken[start].right : taken[start].left
+                    let edgeB = right ? taken[b].right : taken[b].left
+                    if abs(edgeA - edgeB) <= columnLines * line / max(0.1, aspect),
+                       paints[b].cover.top >= paints[last].cover.top,
+                       paints[b].cover.top - paints[last].cover.bottom <= columnGapLines * line {
+                        used.insert(b)
+                        column.append(b)
+                    }
+                }
+                guard column.count >= 2 else { continue }
+                let x = right ? column.map { result[$0].spot!.right }.min()! : column.map { result[$0].spot!.left }.max()!
+                let aligned = column.map {
+                    besideAt($0, x: x, right: right, paints: paints, targets: targets, taken: taken, twins: twins,
+                             aspect: aspect, current: result[$0])
+                }
+                guard aligned.allSatisfy({ $0 != nil }) else { continue }
+                for (k, i) in column.enumerated() { result[i] = aligned[k]! }
+            }
         }
         return result
+    }
+
+    /// Aynı satırda birbirine yakın (aralarında en çok `stripGapLines` satır) yazıların şeritleri; zincirleme (sekme şeridinin
+    /// bütün sekmeleri). Sıra `free` sırası.
+    static func strips(_ free: [Int], paints: [TextPaint], targets: [TextPainter.Target], taken: [TextBox],
+                       aspect: Double) -> [[Int]] {
+        var strips: [[Int]] = []
+        var seen = Set<Int>()
+        for start in free where !seen.contains(start) {
+            seen.insert(start)
+            var strip = [start]
+            var q = 0
+            while q < strip.count {
+                let a = strip[q]
+                q += 1
+                for b in free where !seen.contains(b) {
+                    let ca = paints[a].cover, cb = paints[b].cover
+                    let lineX = max(1e-6, min(targets[a].lineHeight, targets[b].lineHeight)) / max(0.1, aspect)
+                    if overlapY(ca, cb) >= sameRow * min(ca.bottom - ca.top, cb.bottom - cb.top),
+                       max(0, max(taken[a].left, taken[b].left) - min(taken[a].right, taken[b].right)) <= stripGapLines * lineX {
+                        seen.insert(b)
+                        strip.append(b)
+                    }
+                }
+            }
+            strips.append(strip)
+        }
+        return strips
+    }
+
+    /// Satırın kendi kutusu simgesiyle birlikte (okunan kutu); simge okunmadıysa simge tarafına simge kadar yer.
+    static func own(_ i: Int, paints: [TextPaint], taken: [TextBox], lineX: Double) -> TextBox {
+        let c = paints[i].cover
+        var own = taken[i]
+        if paints[i].iconSide == .left, c.left - own.left < 0.5 * iconLines * lineX { own.left = c.left - iconLines * lineX }
+        if paints[i].iconSide == .right, own.right - c.right < 0.5 * iconLines * lineX { own.right = c.right + iconLines * lineX }
+        return own
+    }
+
+    /// Satırın engelleri: öbür yazıların kutuları (sırasıyla) ve ikiz kartlar (sıra -1).
+    static func others(_ i: Int, taken: [TextBox], twins: [TextBox]) -> [(j: Int, box: TextBox)] {
+        taken.indices.filter { $0 != i }.map { (j: $0, box: taken[$0]) } + twins.map { (j: -1, box: $0) }
+    }
+
+    /// Yanına yazılan Türkçenin `start`'tan (sola yaslıda sol kenarı, sağa yaslıda sağ kenarı) uzayabileceği son nokta:
+    /// ekranın kenarı, en çok erişim, satırdaki yazı ya da ikiz kart. Karşıdan bakan komşu (sola yaslı satırın sağında sağa
+    /// yaslı değer, "STYLE … SOUVENIR") arayı ortadan böler; ikisinin Türkçesi üst üste binmez.
+    static func limit(_ i: Int, start: Double, right: Bool, own: TextBox, paints: [TextPaint], targets: [TextPainter.Target],
+                      others: [(j: Int, box: TextBox)], aspect: Double) -> Double {
+        let c = paints[i].cover
+        let lineX = max(1e-6, targets[i].lineHeight) / max(0.1, aspect)
+        let gap = gapLines * lineX, edge = edgeLines * lineX, eps = 1e-9, w = c.right - c.left
+        let reach = max(besideMax * w + lineX, reachLines * lineX)
+        let touch = touchShare * (c.bottom - c.top)
+        if !right {
+            var limit = min(1 - edge, start + reach)
+            for o in others where overlapY(o.box, c) > touch && o.box.right > start {
+                let facing = o.j >= 0 && targets[o.j].align == .right && o.box.left >= own.right - eps
+                limit = min(limit, facing ? (own.right + o.box.left - gap) / 2 : o.box.left - gap)
+            }
+            return limit
+        }
+        var low = max(edge, start - reach)
+        for o in others where overlapY(o.box, c) > touch && o.box.left < start {
+            let facing = o.j >= 0 && targets[o.j].align != .right && o.box.right <= own.left + eps
+            low = max(low, facing ? (o.box.right + own.left + gap) / 2 : o.box.right + gap)
+        }
+        return low
+    }
+
+    /// Yanına yazma, Türkçe `x`'te başlarken (sola yaslıda sol kenarı, sağa yaslıda sağ kenarı; listenin sütunu): engeller
+    /// `limit` ile aynı; yer yoksa nil.
+    static func besideAt(_ i: Int, x: Double, right: Bool, paints: [TextPaint], targets: [TextPainter.Target], taken: [TextBox],
+                         twins: [TextBox], aspect: Double, current: TextPaint) -> TextPaint? {
+        let c = paints[i].cover
+        let lineX = max(1e-6, targets[i].lineHeight) / max(0.1, aspect)
+        let w = c.right - c.left
+        let reach = max(besideMax * w + lineX, reachLines * lineX)
+        let end = limit(i, start: x, right: right, own: own(i, paints: paints, taken: taken, lineX: lineX), paints: paints,
+                        targets: targets, others: others(i, taken: taken, twins: twins), aspect: aspect)
+        guard abs(end - x) >= roomShare * min(w, reach), right ? end <= x : end >= x else { return nil }
+        var p = current
+        if right {
+            p.spot = TextBox(left: max(end, x - w), top: c.top, right: x, bottom: c.bottom)
+            p.spotRoom = TextBox(left: end, top: c.top, right: x, bottom: c.bottom)
+        } else {
+            p.spot = TextBox(left: x, top: c.top, right: min(end, x + w), bottom: c.bottom)
+            p.spotRoom = TextBox(left: x, top: c.top, right: end, bottom: c.bottom)
+        }
+        return p
     }
 
     /// Ölçülen örtü, zemin ve yazı rengi kalır; kip örtmeye döner, yanına yazma ve ikiz alanları silinir.
@@ -138,55 +267,59 @@ public enum MenuLayout {
         let lineX = lineY / max(0.1, aspect)
         let gap = gapLines * lineX, edge = edgeLines * lineX, eps = 1e-9
         let w = c.right - c.left, h = c.bottom - c.top
+        // Genişliği ya da yüksekliği olmayan kutu (bozuk okuma) yanına yazılmaz.
+        guard w > eps, h > eps else { return (base, false) }
         let reach = max(besideMax * w + lineX, reachLines * lineX)
-        // Satırın kendi kutusu simgesiyle birlikte (okunan kutu); simge okunmadıysa simge tarafına simge kadar yer.
-        var own = taken[i]
-        if paints[i].iconSide == .left, c.left - own.left < 0.5 * iconLines * lineX { own.left = c.left - iconLines * lineX }
-        if paints[i].iconSide == .right, own.right - c.right < 0.5 * iconLines * lineX { own.right = c.right + iconLines * lineX }
-        let others = paints.indices.filter { $0 != i }.map { taken[$0] } + twins
+        let own = Self.own(i, paints: paints, taken: taken, lineX: lineX)
+        let others = Self.others(i, taken: taken, twins: twins)
         var p = base
         p.mode = .beside
         p.label = labelColor
         let touch = touchShare * h
         if side && targets[i].align != .right {
             let left = own.right + gap
-            var limit = min(1 - edge, left + reach)
-            for o in others where overlapY(o, c) > touch && o.right > left { limit = min(limit, o.left - gap) }
-            if limit - left >= roomShare * min(w, reach) {
-                p.spot = TextBox(left: left, top: c.top, right: min(limit, left + w), bottom: c.bottom)
-                p.spotRoom = TextBox(left: left, top: c.top, right: limit, bottom: c.bottom)
+            let end = limit(i, start: left, right: false, own: own, paints: paints, targets: targets, others: others, aspect: aspect)
+            if end - left >= roomShare * min(w, reach) {
+                p.spot = TextBox(left: left, top: c.top, right: min(end, left + w), bottom: c.bottom)
+                p.spotRoom = TextBox(left: left, top: c.top, right: end, bottom: c.bottom)
                 return (p, false)
             }
         } else if side {
             let right = own.left - gap
-            var limit = max(edge, right - reach)
-            for o in others where overlapY(o, c) > touch && o.left < right { limit = max(limit, o.right + gap) }
-            if right - limit >= roomShare * min(w, reach) {
-                p.spot = TextBox(left: max(limit, right - w), top: c.top, right: right, bottom: c.bottom)
-                p.spotRoom = TextBox(left: limit, top: c.top, right: right, bottom: c.bottom)
+            let end = limit(i, start: right, right: true, own: own, paints: paints, targets: targets, others: others, aspect: aspect)
+            if right - end >= roomShare * min(w, reach) {
+                p.spot = TextBox(left: max(end, right - w), top: c.top, right: right, bottom: c.bottom)
+                p.spotRoom = TextBox(left: end, top: c.top, right: right, bottom: c.bottom)
                 return (p, false)
             }
         }
         // Yanına sığmayan etiket (sekme şeridinin sekmesi, sıkışık tuş çubuğu) altına, olmazsa üstüne; aynı satırdaki
-        // komşularla arasının ortasını geçmez (komşunun etiketiyle arada `gap` kalır), başka yazının üstüne binmez.
+        // komşularla arasının ortasını geçmez (komşunun etiketiyle arada boşluk kalır), başka yazının üstüne binmez, uzadığı
+        // alan da o bantta başka yazıya varmaz.
         let mates = paints.indices.filter { j in
             j != i && overlapY(c, paints[j].cover) >= sameRow * min(h, paints[j].cover.bottom - paints[j].cover.top)
         }
         var l = max(edge, own.left - 0.5 * w), r = min(1 - edge, own.right + 0.5 * w)
         for j in mates {
             let o = taken[j]
-            if o.left >= own.right - eps { r = min(r, (own.right + o.left - gap) / 2) }
-            else if o.right <= own.left + eps { l = max(l, (o.right + own.left + gap) / 2) }
+            if o.left >= own.right - eps { r = min(r, (own.right + o.left) / 2 - gap) }
+            else if o.right <= own.left + eps { l = max(l, (o.right + own.left) / 2 + gap) }
         }
-        l = min(l, c.left)
-        r = max(r, c.right)
         let step = gapLines * lineY
         for top in [own.bottom + step, own.top - step - h] {
             let spot = TextBox(left: c.left, top: top, right: c.right, bottom: top + h)
-            let hit = others.contains { o in min(o.right, spot.right) > max(o.left, spot.left) && overlapY(o, spot) > touch }
-            guard spot.top >= 0, spot.bottom <= 1, !hit else { continue }
+            guard spot.top >= 0, spot.bottom <= 1 else { continue }
+            let hit = others.contains { o in
+                min(o.box.right, spot.right) > max(o.box.left, spot.left) && overlapY(o.box, spot) > touch
+            }
+            guard !hit else { continue }
+            var bandLeft = l, bandRight = r
+            for o in others where overlapY(o.box, spot) > touch {
+                if o.box.right <= c.left + eps { bandLeft = max(bandLeft, o.box.right + gap) }
+                else if o.box.left >= c.right - eps { bandRight = min(bandRight, o.box.left - gap) }
+            }
             p.spot = spot
-            p.spotRoom = TextBox(left: l, top: top, right: r, bottom: top + h)
+            p.spotRoom = TextBox(left: min(bandLeft, c.left), top: top, right: max(bandRight, c.right), bottom: top + h)
             return (p, true)
         }
         return (base, false)

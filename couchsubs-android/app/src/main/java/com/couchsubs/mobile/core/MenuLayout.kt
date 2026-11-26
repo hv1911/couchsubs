@@ -17,8 +17,9 @@ import kotlin.math.min
  * - **A, yanına yaz (varsayılan):** her satırın Türkçesi İngilizcesinin hemen yanına, koyu zeminli etikete (`label`)
  *   yazılır: sola yaslı satırda sağına, sağa yaslı satırda (tuş çubuğu) soluna; satırın simgesi ve komşu yazılar
  *   örtülmez. Yanına sığmayan etiket (sekme şeridi, sıkışık tuş çubuğu) altına, olmazsa üstüne yazılır; şeridin bir
- *   sekmesi altına yazıldıysa yakınındaki öbür sekmeler de altına yazılır (şerit bir bütün). Hiçbir yere sığmayan satır
- *   örtülür. Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
+ *   sekmesi altına yazıldıysa öbür sekmeler de altına, biri hiçbir yere sığmazsa şeridin hepsi örtülür (şerit bir bütün).
+ *   Listede Türkçeler tek sütunda başlar (sola yaslı listede en uzun satırın sağında). Hiçbir yere sığmayan satır örtülür.
+ *   Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
  *   resmiyle ikiz kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı
  *   kartla hizalı başka yazılar) kartın satırları da yanına yazılır.
  * - İki biçimde de satırın üstüne/altına küçük yazma, haritaya uzak ikiz kutu ve iki satırı tek kutuda birleştirme olmaz;
@@ -55,6 +56,8 @@ object MenuLayout {
     const val CARD_GAP_LINES = 0.3
     /** Kart dışı bir yazının sol kenarı kartınkine bu kadar yakınsa (satır yüksekliğinin katı) kart bir listenin parçasıdır. */
     const val COLUMN_LINES = 1.0
+    /** Alt alta iki satır bu kadar (satır yüksekliğinin katı) aralıkla aynı listenin sütunundadır. */
+    const val COLUMN_GAP_LINES = 1.5
 
     /**
      * Menüdeki çizimler ayardaki biçime kilitlenir. [cards]: görev kartlarının parçaları (her kart için [paints] sıraları);
@@ -71,7 +74,11 @@ object MenuLayout {
         val done = HashSet<Int>()
         val twins = ArrayList<TextBox>()
         for (raw in cards) {
-            val card = raw.filter { it >= 0 && it < paints.size && it !in done }
+            // Kutusu boş (genişliği ya da yüksekliği olmayan) parça ikize girmez.
+            val card = raw.filter {
+                it >= 0 && it < paints.size && it !in done &&
+                    paints[it].cover.right - paints[it].cover.left > 1e-9 && paints[it].cover.bottom - paints[it].cover.top > 1e-9
+            }
             if (card.isEmpty()) continue
             val made = cardTwin(card, paints, targets, taken, twins, aspect, portrait) ?: continue
             for ((m, paint) in made) result[m] = paint
@@ -86,22 +93,144 @@ object MenuLayout {
             result[i] = paint
             if (below) vertical.add(i)
         }
-        // Şerit bir bütün: aynı satırda yakınındaki bir yazı altına/üstüne yazıldıysa yanına yazılan da oraya yazılır
-        // (sekme şeridinde son sekmenin Türkçesi yanında, öbürleri altında kalıyordu).
-        for (i in paints.indices) {
-            if (i in done || i in vertical || result[i].mode != TextPaint.MODE_BESIDE) continue
-            val c = paints[i].cover
-            val lineX = max(1e-6, targets[i].lineHeight) / max(0.1, aspect)
-            val strip = vertical.any { j ->
-                val o = paints[j].cover
-                overlapY(c, o) >= SAME_ROW * min(c.bottom - c.top, o.bottom - o.top) &&
-                    max(0.0, max(taken[i].left, taken[j].left) - min(taken[i].right, taken[j].right)) <= STRIP_GAP_LINES * lineX
+        val free = paints.indices.filter { it !in done }
+        // Şerit bir bütün: aynı satırda yakın yazılar (sekme şeridi, tuş çubuğu) tek biçimde çizilir. Hepsi yanına sığıyorsa
+        // yanına; değilse hepsi altına/üstüne; biri de sığmazsa hepsi örtülür (şeritte kimi Türkçe yanında, kimi altında, kimi
+        // örtülü kalıyordu).
+        for (strip in strips(free, paints, targets, taken, aspect)) {
+            if (strip.size < 2 || strip.all { result[it].mode == TextPaint.MODE_BESIDE && it !in vertical }) continue
+            val tried = strip.map { beside(it, paints, targets, taken, twins, aspect, base[it], side = false) }
+            val below = tried.all { it.second }
+            for ((k, i) in strip.withIndex()) {
+                result[i] = if (below) tried[k].first else base[i]
+                if (below) vertical.add(i) else vertical.remove(i)
             }
-            if (!strip) continue
-            val (paint, below) = beside(i, paints, targets, taken, twins, aspect, base[i], side = false)
-            if (below) result[i] = paint
+        }
+        // Liste bir sütun: alt alta, aynı yana yaslı satırların yanına yazılan Türkçeleri tek sütunda başlar (sola yaslı
+        // listede en uzun satırın sağında, sağa yaslı listede en uzun satırın solunda). Bir satıra orada yer yoksa liste
+        // her satırın yanında kalır.
+        val side = free.filter { result[it].mode == TextPaint.MODE_BESIDE && it !in vertical && result[it].spot != null }
+        for (right in listOf(false, true)) {
+            val members = side.filter { (targets[it].align == "right") == right }
+                .sortedWith(compareBy<Int>({ paints[it].cover.top }, { it }))
+            val used = HashSet<Int>()
+            for (start in members) {
+                if (!used.add(start)) continue
+                val column = mutableListOf(start)
+                for (b in members) {
+                    if (b in used) continue
+                    val last = column.last()
+                    val line = max(targets[last].lineHeight, targets[b].lineHeight)
+                    val edgeA = if (right) taken[start].right else taken[start].left
+                    val edgeB = if (right) taken[b].right else taken[b].left
+                    if (kotlin.math.abs(edgeA - edgeB) <= COLUMN_LINES * line / max(0.1, aspect) &&
+                        paints[b].cover.top >= paints[last].cover.top &&
+                        paints[b].cover.top - paints[last].cover.bottom <= COLUMN_GAP_LINES * line) {
+                        used.add(b)
+                        column.add(b)
+                    }
+                }
+                if (column.size < 2) continue
+                val x = if (right) column.minOf { result[it].spot!!.right } else column.maxOf { result[it].spot!!.left }
+                val aligned = column.map { besideAt(it, x, right, paints, targets, taken, twins, aspect, result[it]) }
+                if (aligned.any { it == null }) continue
+                for ((k, i) in column.withIndex()) result[i] = aligned[k]!!
+            }
         }
         return result
+    }
+
+    /**
+     * Aynı satırda birbirine yakın (aralarında en çok [STRIP_GAP_LINES] satır) yazıların şeritleri; zincirleme (sekme
+     * şeridinin bütün sekmeleri). Sıra [free] sırası.
+     */
+    internal fun strips(free: List<Int>, paints: List<TextPaint>, targets: List<TextPainter.Target>, taken: List<TextBox>,
+                        aspect: Double): List<List<Int>> {
+        val strips = ArrayList<List<Int>>()
+        val seen = HashSet<Int>()
+        for (start in free) {
+            if (!seen.add(start)) continue
+            val strip = mutableListOf(start)
+            var q = 0
+            while (q < strip.size) {
+                val a = strip[q++]
+                for (b in free) {
+                    if (b in seen) continue
+                    val ca = paints[a].cover
+                    val cb = paints[b].cover
+                    val lineX = max(1e-6, min(targets[a].lineHeight, targets[b].lineHeight)) / max(0.1, aspect)
+                    if (overlapY(ca, cb) >= SAME_ROW * min(ca.bottom - ca.top, cb.bottom - cb.top) &&
+                        max(0.0, max(taken[a].left, taken[b].left) - min(taken[a].right, taken[b].right)) <= STRIP_GAP_LINES * lineX) {
+                        seen.add(b)
+                        strip.add(b)
+                    }
+                }
+            }
+            strips.add(strip)
+        }
+        return strips
+    }
+
+    /** Satırın kendi kutusu simgesiyle birlikte (okunan kutu); simge okunmadıysa simge tarafına simge kadar yer. */
+    internal fun own(i: Int, paints: List<TextPaint>, taken: List<TextBox>, lineX: Double): TextBox {
+        val c = paints[i].cover
+        var own = taken[i]
+        if (paints[i].iconSide == "left" && c.left - own.left < 0.5 * ICON_LINES * lineX) own = own.copy(left = c.left - ICON_LINES * lineX)
+        if (paints[i].iconSide == "right" && own.right - c.right < 0.5 * ICON_LINES * lineX) own = own.copy(right = c.right + ICON_LINES * lineX)
+        return own
+    }
+
+    /** Satırın engelleri: öbür yazıların kutuları (sırasıyla) ve ikiz kartlar (sıra -1). */
+    internal fun others(i: Int, taken: List<TextBox>, twins: List<TextBox>): List<Pair<Int, TextBox>> =
+        taken.indices.filter { it != i }.map { it to taken[it] } + twins.map { -1 to it }
+
+    /**
+     * Yanına yazılan Türkçenin [start]'tan (sola yaslıda sol kenarı, sağa yaslıda sağ kenarı) uzayabileceği son nokta:
+     * ekranın kenarı, en çok erişim, satırdaki yazı ya da ikiz kart. Karşıdan bakan komşu (sola yaslı satırın sağında sağa
+     * yaslı değer, "STYLE … SOUVENIR") arayı ortadan böler; ikisinin Türkçesi üst üste binmez.
+     */
+    internal fun limit(i: Int, start: Double, right: Boolean, own: TextBox, paints: List<TextPaint>,
+                       targets: List<TextPainter.Target>, others: List<Pair<Int, TextBox>>, aspect: Double): Double {
+        val c = paints[i].cover
+        val lineX = max(1e-6, targets[i].lineHeight) / max(0.1, aspect)
+        val gap = GAP_LINES * lineX
+        val edge = EDGE_LINES * lineX
+        val eps = 1e-9
+        val w = c.right - c.left
+        val reach = max(BESIDE_MAX * w + lineX, REACH_LINES * lineX)
+        val touch = TOUCH_SHARE * (c.bottom - c.top)
+        if (!right) {
+            var limit = min(1 - edge, start + reach)
+            for ((j, o) in others) {
+                if (overlapY(o, c) <= touch || o.right <= start) continue
+                val facing = j >= 0 && targets[j].align == "right" && o.left >= own.right - eps
+                limit = min(limit, if (facing) (own.right + o.left - gap) / 2 else o.left - gap)
+            }
+            return limit
+        }
+        var low = max(edge, start - reach)
+        for ((j, o) in others) {
+            if (overlapY(o, c) <= touch || o.left >= start) continue
+            val facing = j >= 0 && targets[j].align != "right" && o.right <= own.left + eps
+            low = max(low, if (facing) (o.right + own.left + gap) / 2 else o.right + gap)
+        }
+        return low
+    }
+
+    /**
+     * Yanına yazma, Türkçe [x]'te başlarken (sola yaslıda sol kenarı, sağa yaslıda sağ kenarı; listenin sütunu): engeller
+     * [limit] ile aynı; yer yoksa null.
+     */
+    internal fun besideAt(i: Int, x: Double, right: Boolean, paints: List<TextPaint>, targets: List<TextPainter.Target>,
+                          taken: List<TextBox>, twins: List<TextBox>, aspect: Double, current: TextPaint): TextPaint? {
+        val c = paints[i].cover
+        val lineX = max(1e-6, targets[i].lineHeight) / max(0.1, aspect)
+        val w = c.right - c.left
+        val reach = max(BESIDE_MAX * w + lineX, REACH_LINES * lineX)
+        val limit = limit(i, x, right, own(i, paints, taken, lineX), paints, targets, others(i, taken, twins), aspect)
+        if (kotlin.math.abs(limit - x) < ROOM_SHARE * min(w, reach) || (if (right) limit > x else limit < x)) return null
+        return if (right) current.copy(spot = TextBox(max(limit, x - w), c.top, x, c.bottom), spotRoom = TextBox(limit, c.top, x, c.bottom))
+        else current.copy(spot = TextBox(x, c.top, min(limit, x + w), c.bottom), spotRoom = TextBox(x, c.top, limit, c.bottom))
     }
 
     /** Ölçülen örtü, zemin ve yazı rengi kalır; kip örtmeye döner, yanına yazma ve ikiz alanları silinir. */
@@ -131,33 +260,31 @@ object MenuLayout {
         val eps = 1e-9
         val w = c.right - c.left
         val h = c.bottom - c.top
+        // Genişliği ya da yüksekliği olmayan kutu (bozuk okuma) yanına yazılmaz.
+        if (w <= eps || h <= eps) return base to false
         val reach = max(BESIDE_MAX * w + lineX, REACH_LINES * lineX)
-        // Satırın kendi kutusu simgesiyle birlikte (okunan kutu); simge okunmadıysa simge tarafına simge kadar yer.
-        var own = taken[i]
-        if (paints[i].iconSide == "left" && c.left - own.left < 0.5 * ICON_LINES * lineX) own = own.copy(left = c.left - ICON_LINES * lineX)
-        if (paints[i].iconSide == "right" && own.right - c.right < 0.5 * ICON_LINES * lineX) own = own.copy(right = c.right + ICON_LINES * lineX)
-        val others = paints.indices.filter { it != i }.map { taken[it] } + twins
+        val own = own(i, paints, taken, lineX)
+        val others = others(i, taken, twins)
         val p = base.copy(mode = TextPaint.MODE_BESIDE, label = LABEL_COLOR)
         val touch = TOUCH_SHARE * h
         if (side && targets[i].align != "right") {
             val left = own.right + gap
-            var limit = min(1 - edge, left + reach)
-            for (o in others) if (overlapY(o, c) > touch && o.right > left) limit = min(limit, o.left - gap)
+            val limit = limit(i, left, false, own, paints, targets, others, aspect)
             if (limit - left >= ROOM_SHARE * min(w, reach)) {
                 return p.copy(spot = TextBox(left, c.top, min(limit, left + w), c.bottom),
                     spotRoom = TextBox(left, c.top, limit, c.bottom)) to false
             }
         } else if (side) {
             val right = own.left - gap
-            var limit = max(edge, right - reach)
-            for (o in others) if (overlapY(o, c) > touch && o.left < right) limit = max(limit, o.right + gap)
+            val limit = limit(i, right, true, own, paints, targets, others, aspect)
             if (right - limit >= ROOM_SHARE * min(w, reach)) {
                 return p.copy(spot = TextBox(max(limit, right - w), c.top, right, c.bottom),
                     spotRoom = TextBox(limit, c.top, right, c.bottom)) to false
             }
         }
         // Yanına sığmayan etiket (sekme şeridinin sekmesi, sıkışık tuş çubuğu) altına, olmazsa üstüne; aynı satırdaki
-        // komşularla arasının ortasını geçmez (komşunun etiketiyle arada gap kalır), başka yazının üstüne binmez.
+        // komşularla arasının ortasını geçmez (komşunun etiketiyle arada boşluk kalır), başka yazının üstüne binmez, uzadığı
+        // alan da o bantta başka yazıya varmaz.
         val mates = paints.indices.filter { j ->
             j != i && overlapY(c, paints[j].cover) >= SAME_ROW * min(h, paints[j].cover.bottom - paints[j].cover.top)
         }
@@ -165,17 +292,22 @@ object MenuLayout {
         var r = min(1 - edge, own.right + 0.5 * w)
         for (j in mates) {
             val o = taken[j]
-            if (o.left >= own.right - eps) r = min(r, (own.right + o.left - gap) / 2)
-            else if (o.right <= own.left + eps) l = max(l, (o.right + own.left + gap) / 2)
+            if (o.left >= own.right - eps) r = min(r, (own.right + o.left) / 2 - gap)
+            else if (o.right <= own.left + eps) l = max(l, (o.right + own.left) / 2 + gap)
         }
-        l = min(l, c.left)
-        r = max(r, c.right)
         val step = GAP_LINES * lineY
         for (top in doubleArrayOf(own.bottom + step, own.top - step - h)) {
             val spot = TextBox(c.left, top, c.right, top + h)
-            val hit = others.any { o -> min(o.right, spot.right) > max(o.left, spot.left) && overlapY(o, spot) > touch }
-            if (spot.top < 0 || spot.bottom > 1 || hit) continue
-            return p.copy(spot = spot, spotRoom = TextBox(l, top, r, top + h)) to true
+            if (spot.top < 0 || spot.bottom > 1) continue
+            if (others.any { (_, o) -> min(o.right, spot.right) > max(o.left, spot.left) && overlapY(o, spot) > touch }) continue
+            var bandLeft = l
+            var bandRight = r
+            for ((_, o) in others) {
+                if (overlapY(o, spot) <= touch) continue
+                if (o.right <= c.left + eps) bandLeft = max(bandLeft, o.right + gap)
+                else if (o.left >= c.right - eps) bandRight = min(bandRight, o.left - gap)
+            }
+            return p.copy(spot = spot, spotRoom = TextBox(min(bandLeft, c.left), top, max(bandRight, c.right), top + h)) to true
         }
         return base to false
     }

@@ -2210,14 +2210,19 @@
 
   // Menüde yanına yazılan Türkçenin etiketi (TV 0.9.122; bilgisayar MenuLayout, #1365): "Menülerde İngilizcenin üstünü
   // ört" kapalıyken Türkçe İngilizcenin yanına koyu, yarı saydam, köşeleri yuvarlak etikete açık renkle yazılır (haritanın
-  // ya da desenli zeminin üstünde konturlu yazı okunmuyordu, beta.105). Etiket yazının çevresine payla taşar (box-shadow:
-  // yerleşim değişmez). Eski bilgisayar label göndermez: zeminsiz, konturlu yazı sürer.
+  // ya da desenli zeminin üstünde konturlu yazı okunmuyordu, beta.105). Etiket yazıyı sarar, çevresine payla taşar
+  // (yerleşim değişmez); seçili satırda ters renkli. Eski bilgisayar label göndermez: zeminsiz, konturlu yazı sürer.
   function besideLabel(item) {
     return item && exactMode(item) === 'beside' && phoneColor(item.label) ? item.label : null;
   }
 
   function labelFill(hex) {
     return 'rgba(' + parseInt(hex.slice(1, 3), 16) + ',' + parseInt(hex.slice(3, 5), 16) + ',' + parseInt(hex.slice(5, 7), 16) + ',0.86)';
+  }
+
+  function labelLight(hex) {
+    if (!phoneColor(hex)) return false;
+    return 0.299 * parseInt(hex.slice(1, 3), 16) + 0.587 * parseInt(hex.slice(3, 5), 16) + 0.114 * parseInt(hex.slice(5, 7), 16) > 160;
   }
 
   // Etiketteki yazı: özgün yazı açık renkse o renk (seçili satırın sarısı), koyuysa açık gri.
@@ -2422,13 +2427,26 @@
       el.style.width = place.width + 'px';
       el.style.height = place.height + 'px';
       var label = besideLabel(source);
-      el.style.backgroundColor = mode === 'cover' ? source.bg : label ? labelFill(label) : 'transparent';
+      // Seçili (ters renkli: açık zemin, koyu yazı) satırın etiketi de ters renkli; seçim Türkçede de görünür.
+      var selected = label && labelLight(source.bg) && !labelLight(source.fg);
+      if (selected) label = source.bg;
+      el.style.backgroundColor = mode === 'cover' ? source.bg : 'transparent';
       if (mode === 'beside' && !label) el.style.textShadow = exactHalo(source.fg, place.fontSize);
       if (label) {
-        var pad = Math.max(2, Math.round(place.fontSize * 0.2));
+        // Etiketin zemini öğenin ilk çocuğu (öğeyle birlikte kayar ve gizlenir): yanlara pad, alta/üste ince pay kadar taşar;
+        // tek katman, köşelerde dikiş yok; alt alta satırların etiketleri birbirine değmez.
+        var pad = Math.max(2, Math.round(place.fontSize * 0.2)), padY = Math.max(1, Math.round(place.fontSize * 0.06));
+        var chip = document.createElement('div');
+        chip.className = 'exact-label';
+        chip.style.position = 'absolute';
+        chip.style.left = (-pad) + 'px';
+        chip.style.top = (-padY) + 'px';
+        chip.style.width = (place.width + 2 * pad) + 'px';
+        chip.style.height = (place.height + 2 * padY) + 'px';
+        chip.style.backgroundColor = labelFill(label);
+        chip.style.borderRadius = Math.max(2, Math.round(pad * 0.8)) + 'px';
         el.className += ' label';
-        el.style.boxShadow = '0 0 0 ' + pad + 'px ' + labelFill(label);
-        el.style.borderRadius = Math.max(2, Math.round(pad * 0.8)) + 'px';
+        el.appendChild(chip);
       }
       if (mode === 'cover' && phoneColor(source.bg2) && (source.bgDir === 'h' || source.bgDir === 'v')) {
         var webkit = '-webkit-linear-gradient(' + (source.bgDir === 'h' ? 'left' : 'top') + ', ' + source.bg + ', ' + source.bg2 + ')';
@@ -2436,7 +2454,7 @@
         el.style.backgroundImage = webkit;
         el.style.backgroundImage = standard;
       }
-      el.style.color = label ? labelInk(source.fg) : source.fg;
+      el.style.color = selected ? source.fg : label ? labelInk(source.fg) : source.fg;
       el.style.fontWeight = source.weight === 700 ? '700' : '400';
       el.style.fontFamily = exactFamily(source);
       el.style.fontSize = place.fontSize + 'px';
