@@ -17,6 +17,9 @@
   ],
   "translateLabel": [
     { "text": "OFF", "expected": "KAPALI" },
+    { "text": "TARGETS", "expected": "HEDEFLER" },
+    { "text": "Stick Ups", "expected": "Silahlı Soygunlar" },
+    { "text": "ROBBERIES", "expected": "SOYGUNLAR" },
     { "text": "Off", "expected": "Kapalı" },
     { "text": "off", "expected": "kapalı" },
     { "text": "ON", "expected": "AÇIK" },

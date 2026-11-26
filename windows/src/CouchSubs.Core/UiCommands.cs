@@ -72,6 +72,8 @@ public static class UiCommands
         // Haritanın görev listesi ve görev kartı (#1365): "GOAL" motordan "GOL." dönüyordu; arayüz etiketi olarak sabit.
         ["GOAL"] = "Hedef", ["GOALS"] = "Hedefler", ["OBJECTIVES"] = "Hedefler", ["MISSION"] = "Görev", ["MISSIONS"] = "Görevler",
         ["STORY"] = "Hikâye", ["OPTIONAL"] = "İsteğe bağlı", ["REWARD"] = "Ödül", ["REWARDS"] = "Ödüller",
+        // Haritanın kategori başlıkları (beta.105): paket "TARGETS"i "HEDEFLER…", "Stick Ups"ı "Soygunları mı?" veriyordu.
+        ["TARGETS"] = "Hedefler", ["ROBBERIES"] = "Soygunlar", ["STICK UPS"] = "Silahlı soygunlar",
     };
 
     /// <summary>
