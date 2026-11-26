@@ -83,6 +83,83 @@ public class MenuLayoutTests
         }
     }
 
+    /// <summary>
+    /// İkiz kartın kişi resmi kareden bulunur (<see cref="TextPainter.CardPortrait(IReadOnlyList{TextBox}, IReadOnlyList{int}, string, double, Frame)"/>):
+    /// başlığa yakın resim bulunur; harita, harf taşması ve resimsiz kart resim sayılmaz. Ortak deneme dosyası card-portrait.json.
+    /// </summary>
+    [Fact]
+    public void CardPortraitSharedCases()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(PackFixtures.Path("card-portrait.json")));
+        var root = document.RootElement;
+        int width = root.GetProperty("width").GetInt32(), height = root.GetProperty("height").GetInt32();
+        static (int R, int G, int B) Rgb(string hex) =>
+            (Convert.ToInt32(hex[1..3], 16), Convert.ToInt32(hex[3..5], 16), Convert.ToInt32(hex[5..7], 16));
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            var id = c.GetProperty("id").GetString()!;
+            var rects = c.GetProperty("rects").EnumerateArray()
+                .Select(r => (Box: r.GetProperty("box").EnumerateArray().Select(v => v.GetInt32()).ToArray(), Color: Rgb(r.GetProperty("color").GetString()!)))
+                .ToList();
+            var ground = Rgb(c.GetProperty("base").GetString()!);
+            (int R, int G, int B) Color(int x, int y)
+            {
+                for (var k = rects.Count - 1; k >= 0; k--)
+                {
+                    var b = rects[k].Box;
+                    if (x >= b[0] && x < b[2] && y >= b[1] && y < b[3]) return rects[k].Color;
+                }
+                return ground;
+            }
+            var covers = c.GetProperty("covers").EnumerateArray().Select(e =>
+            {
+                var v = e.EnumerateArray().Select(n => n.GetDouble()).ToArray();
+                return new TextBox(v[0] / width, v[1] / height, v[2] / width, v[3] / height);
+            }).ToList();
+            var card = c.GetProperty("card").EnumerateArray().Select(n => n.GetInt32()).ToList();
+            var found = TextPainter.CardPortrait(covers, card, c.GetProperty("background").GetString()!,
+                                                 c.GetProperty("line").GetDouble() / height, width, height, Color);
+            var expect = c.GetProperty("expect");
+            if (expect.ValueKind == JsonValueKind.Null)
+            {
+                Assert.True(found is null, $"{id}: resim bulunmamalı, bulunan {found}");
+                continue;
+            }
+            var e = expect.EnumerateArray().Select(n => n.GetDouble()).ToArray();
+            Near(new TextBox(e[0] / width, e[1] / height, e[2] / width, e[3] / height), found, id);
+        }
+    }
+
+    /// <summary>İkiz kartta kişi resmi yoksa kareden aranan resim bütün parçalara konur ve ikiz kutu resmi de içine alır.</summary>
+    [Fact]
+    public void CardTwinTakesTheFoundPortrait()
+    {
+        var title = new TextPaint("#1E2A5A", 0.04, new TextBox(0.30, 0.30, 0.50, 0.34));
+        var body = new TextPaint("#1E2A5A", 0.04, new TextBox(0.24, 0.36, 0.60, 0.44));
+        var targets = new[] { title, body }.Select(p => new TextPainter.Target(p.Cover, 0.04, 1, "#1E2A5A", "#F0F0F0", false, "left")).ToList();
+        var face = new TextBox(0.24, 0.29, 0.28, 0.35);
+        var asked = 0;
+        var result = MenuLayout.Locked([title, body], targets, [[0, 1]], cover: false, aspect: 1, (card, fill) =>
+        {
+            asked++;
+            Assert.Equal("#1E2A5A", fill);
+            return (face, "data:image/png;base64,AA==");
+        });
+        Assert.Equal(1, asked);
+        foreach (var p in result)
+        {
+            Assert.Equal(PaintMode.Twin, p.Mode);
+            Assert.Equal(face, p.Portrait);
+            Assert.Equal("data:image/png;base64,AA==", p.PortraitImage);
+            Assert.True(p.Twin!.Value.Left <= face.Left && p.PortraitTwin!.Value.Top > p.Twin.Value.Top - 1e-9, "ikiz resmi içine alır");
+        }
+        // Görev listesindeki kart ikiz kurulmaz: resim de aranmaz.
+        var row = new TextPaint("#1E2A5A", 0.04, new TextBox(0.24, 0.10, 0.40, 0.14));
+        var listTargets = targets.Prepend(new TextPainter.Target(row.Cover, 0.04, 1, "#1E2A5A", "#F0F0F0", false, "left")).ToList();
+        MenuLayout.Locked([row, title, body], listTargets, [[1, 2]], cover: false, aspect: 1, (_, _) => { asked++; return null; });
+        Assert.Equal(1, asked);
+    }
+
     /// <summary>Etiket TV'ye yalnız yanına yazmada gider (eski TV yok sayar).</summary>
     [Fact]
     public void LabelGoesToTheTvOnlyBeside()

@@ -383,7 +383,8 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                         val dst = android.graphics.RectF((face.left * w).toFloat(), (face.top * h).toFloat(),
                             (face.right * w).toFloat(), (face.bottom * h).toFloat())
                         native.save()
-                        native.clipPath(android.graphics.Path().apply { addOval(dst, android.graphics.Path.Direction.CW) })
+                        // Görev kartının resmi köşeli kare (TV ile aynı), telefon bildiriminin kişi resmi yuvarlak.
+                        if (!paint.portraitSquare) native.clipPath(android.graphics.Path().apply { addOval(dst, android.graphics.Path.Direction.CW) })
                         native.drawBitmap(bitmap, null, dst, android.graphics.Paint().apply { isFilterBitmap = true })
                         native.restore()
                     }
@@ -406,7 +407,7 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                 } else fill.color = first
                 if (covering) native.drawRect(left, top, right, bottom, fill)
                 // Menüde yanına yazılan Türkçenin etiketi (TextPaint.label, MenuLayout; TV 0.9.122 ile aynı): koyu, yarı saydam,
-                // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve konturuz.
+                // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve kontursuz.
                 val label = if (!covering && paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE) parse(paint.label) else null
                 val text = paintFor(item.look?.bold == true, condensed(item), p.fontSize).apply {
                     val ink = parse(item.surface?.foreground) ?: android.graphics.Color.WHITE

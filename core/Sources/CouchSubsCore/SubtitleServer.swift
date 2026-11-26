@@ -612,7 +612,10 @@ public final class SubtitleServer: @unchecked Sendable {
                                           "bottom": unitNumber(edge.bottom), "left": unitNumber(edge.left)] as [String: Any]
                     }
                     if let image = paint.portraitImage, let at = paint.portraitTwin {
-                        result["icon"] = ["src": image, "box": Self.json(at)] as [String: Any]
+                        var icon: [String: Any] = ["src": image, "box": Self.json(at)]
+                        // Görev kartının resmi köşeli kare (TV uygulaması 0.9.122; eski TV yuvarlak çizer).
+                        if paint.portraitSquare { icon["square"] = true }
+                        result["icon"] = icon
                     }
                 }
             }

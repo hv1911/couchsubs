@@ -96,6 +96,8 @@ public sealed partial class RegionWatcher
     private sealed class State
     {
         public byte[]? Signature;
+        /// <summary>Son okumadaki menü biçimi (<see cref="MenuCovers"/>; menü dışı alanda null): ayar değişince görüntü durgun olsa da yeniden okunur.</summary>
+        public bool? MenuCover;
         /// <summary>Günlüğe son yazılan, güveni düşük olduğu için çevrilmeyen satırlar (aynı satırlar her turda yeniden yazılmaz).</summary>
         public IReadOnlyList<string> UnsureLogged = [];
         public CropRegion? ReadRegion;
@@ -558,7 +560,12 @@ public sealed partial class RegionWatcher
         var signature = RegionCropper.Signature(crop);
         var passSignature = state.PassSignature;
         state.PassSignature = signature;
-        var changed = PixelsChanged(state, crop, signature);
+        // Menüde biçim ayarı (üstünü ört / yanına yaz) değişince görüntü durgun olsa da yeniden okunur ve çizilir.
+        bool? cover = area.Auto && area.Menu ? MenuCovers?.Invoke() ?? false : null;
+        var changed = PixelsChanged(state, crop, signature) || state.MenuCover != cover;
+        // Ayar değişince satırların saklı çizim kipi de unutulur: yoksa eski biçim (örn. örtü) SteadyPaints ile kalırdı.
+        if (state.MenuCover is { } was && cover is { } wanted && was != wanted) lock (rowPaints) rowPaints.Clear();
+        state.MenuCover = cover;
         // Örneklerin arasına düşen ya da eski satır kutusunun dışında beliren bir yazıyı da yakala.
         // Birebir aynı görüntüde süre dolsa bile OCR çalışmaz.
         var time = now();
@@ -1145,7 +1152,18 @@ public sealed partial class RegionWatcher
                         .Select(card => (IReadOnlyList<int>)Enumerable.Range(0, painted.Count)
                             .Where(k => card.All.Any(n => lines[n].Box is { } b && Inside(b, groups[painted[k]].Box))).ToList())
                         .Where(parts => parts.Count > 0).ToList();
-                    paints = MenuLayout.Locked(paints, targets, cardParts, coversMenus, (double)measured.Width / Math.Max(1, measured.Height));
+                    // İkiz kartın kişi resmi ölçümde bulunmadıysa kareden aranır (ikiz kart resimsiz kalmasın).
+                    var covers = paints.Select(x => x.Cover).ToList();
+                    Func<IReadOnlyList<int>, string, (TextBox Box, string? Image)?> findPortrait = (card, fill) =>
+                    {
+                        var cardHeights = card.Select(m => targets[m].LineHeight).Order().ToList();
+                        if (cardHeights.Count == 0
+                            || TextPainter.CardPortrait(covers, card, fill, cardHeights[cardHeights.Count / 2], measured) is not { } picture)
+                            return null;
+                        return (picture, TextPainter.PortraitImage(picture, measured));
+                    };
+                    paints = MenuLayout.Locked(paints, targets, cardParts, coversMenus, (double)measured.Width / Math.Max(1, measured.Height),
+                                               findPortrait);
                 }
                 for (var k = 0; k < painted.Count && k < paints.Count; k++)
                 {

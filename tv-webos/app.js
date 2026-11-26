@@ -2366,7 +2366,8 @@
         img.style.top = (icon.box.top * height - top) + 'px';
         img.style.width = ((icon.box.right - icon.box.left) * width) + 'px';
         img.style.height = ((icon.box.bottom - icon.box.top) * height) + 'px';
-        img.style.borderRadius = '50%';
+        // Görev kartının resmi köşeli kare (TV 0.9.122, bilgisayar MenuLayout), telefon bildiriminin kişi resmi yuvarlak.
+        img.style.borderRadius = icon.square === true ? '0' : '50%';
         panel.appendChild(img);
       }
       host.appendChild(panel);
@@ -2398,14 +2399,14 @@
     var placed = exactLayout(inputs, measure);
     // Etiket yazıyı sarar (TV 0.9.122): genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde kalır; boş alan etiketle
     // dolmaz, şeridin etiketleri birbirine değmez.
-    for (var t = 0; t < items.length; t++) {
-      if (!besideLabel(items[t])) continue;
+    for (var li = 0; li < items.length; li++) {
+      if (!besideLabel(items[li])) continue;
       var tight = 0;
-      for (var q = 0; q < placed[t].lines.length; q++) tight = Math.max(tight, measure(placed[t].lines[q], placed[t].fontSize, t));
-      if (tight <= 0 || tight >= placed[t].width) continue;
-      if (inputs[t].align === 'right') placed[t].left += placed[t].width - tight;
-      else if (inputs[t].align === 'center') placed[t].left += (placed[t].width - tight) / 2;
-      placed[t].width = tight;
+      for (var q = 0; q < placed[li].lines.length; q++) tight = Math.max(tight, measure(placed[li].lines[q], placed[li].fontSize, li));
+      if (tight <= 0 || tight >= placed[li].width) continue;
+      if (inputs[li].align === 'right') placed[li].left += placed[li].width - tight;
+      else if (inputs[li].align === 'center') placed[li].left += (placed[li].width - tight) / 2;
+      placed[li].width = tight;
     }
     host.removeChild(probe);
     var drawn = exactTwins(host, items, placed, width, height);

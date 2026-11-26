@@ -18,9 +18,9 @@ import kotlin.math.min
  *   yazılır: sola yaslı satırda sağına, sağa yaslı satırda (tuş çubuğu) soluna; satırın simgesi ve komşu yazılar
  *   örtülmez. Yanına sığmayan etiket (sekme şeridi, sıkışık tuş çubuğu) altına, olmazsa üstüne yazılır; şeridin bir
  *   sekmesi altına yazıldıysa yakınındaki öbür sekmeler de altına yazılır (şerit bir bütün). Hiçbir yere sığmayan satır
- *   örtülür. Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde ikiz
- *   kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı kartla hizalı
- *   başka yazılar) kartın satırları da yanına yazılır.
+ *   örtülür. Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
+ *   resmiyle ikiz kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı
+ *   kartla hizalı başka yazılar) kartın satırları da yanına yazılır.
  * - İki biçimde de satırın üstüne/altına küçük yazma, haritaya uzak ikiz kutu ve iki satırı tek kutuda birleştirme olmaz;
  *   etiketler başka yazının ya da ikiz kartın üstüne binmez.
  *
@@ -58,10 +58,12 @@ object MenuLayout {
 
     /**
      * Menüdeki çizimler ayardaki biçime kilitlenir. [cards]: görev kartlarının parçaları (her kart için [paints] sıraları);
-     * [cover]: B (üstünü ört), false: A (yanına yaz).
+     * [cover]: B (üstünü ört), false: A (yanına yaz). [portrait]: ikiz kurulacak kartın parçalarında kişi resmi yoksa
+     * kartın parçaları ve zemini verilip resim (kutusu ve kesilmiş görüntüsü) kareden aranır ([TextPainter.cardPortrait];
+     * ikiz kart resimsiz kalmasın).
      */
     fun locked(paints: List<TextPaint>, targets: List<TextPainter.Target>, cards: List<List<Int>>, cover: Boolean,
-               aspect: Double): List<TextPaint> {
+               aspect: Double, portrait: ((List<Int>, String) -> Pair<TextBox, String?>?)? = null): List<TextPaint> {
         if (paints.size != targets.size || paints.isEmpty()) return paints
         val result = paints.map(::plain).toMutableList()
         if (cover) return result
@@ -71,7 +73,7 @@ object MenuLayout {
         for (raw in cards) {
             val card = raw.filter { it >= 0 && it < paints.size && it !in done }
             if (card.isEmpty()) continue
-            val made = cardTwin(card, paints, targets, taken, twins, aspect) ?: continue
+            val made = cardTwin(card, paints, targets, taken, twins, aspect, portrait) ?: continue
             for ((m, paint) in made) result[m] = paint
             done.addAll(card)
             twins.add(made[0].second.twin!!)
@@ -105,7 +107,7 @@ object MenuLayout {
     /** Ölçülen örtü, zemin ve yazı rengi kalır; kip örtmeye döner, yanına yazma ve ikiz alanları silinir. */
     fun plain(paint: TextPaint): TextPaint = paint.copy(
         mode = TextPaint.MODE_COVER, spot = null, spotRoom = null, twin = null, radius = 0.0, scale = 1.0, tail = null,
-        portrait = null, portraitTwin = null, portraitImage = null, edge = null, label = null,
+        portrait = null, portraitTwin = null, portraitImage = null, portraitSquare = false, edge = null, label = null,
     )
 
     internal fun overlapY(a: TextBox, b: TextBox): Double = max(0.0, min(a.bottom, b.bottom) - max(a.top, b.top))
@@ -184,18 +186,28 @@ object MenuLayout {
      * ekranında son görev ikiz kart, öbürleri yanında çiziliyordu).
      */
     internal fun cardTwin(card: List<Int>, paints: List<TextPaint>, targets: List<TextPainter.Target>, taken: List<TextBox>,
-                          twins: List<TextBox>, aspect: Double): List<Pair<Int, TextPaint>>? {
-        var union = taken[card[0]]
-        for (m in card) {
-            union = union.union(taken[m])
-            paints[m].portrait?.let { union = union.union(it) }
-        }
+                          twins: List<TextBox>, aspect: Double,
+                          portrait: ((List<Int>, String) -> Pair<TextBox, String?>?)? = null): List<Pair<Int, TextPaint>>? {
         val heights = card.map { targets[it].lineHeight }.sorted()
         val line = max(1e-6, heights[heights.size / 2])
         val padY = CARD_PAD_LINES * line
         val padX = padY / max(0.1, aspect)
         val left = card.minOf { taken[it].left }
         if (paints.indices.any { it !in card && kotlin.math.abs(taken[it].left - left) <= COLUMN_LINES * line / max(0.1, aspect) }) return null
+        // Kartın zemini: en büyük parçanın (açıklama) ölçülen zemini.
+        fun area(b: TextBox) = (b.right - b.left) * (b.bottom - b.top)
+        val largest = card.maxByOrNull { area(paints[it].cover) }!!
+        val fill = paints[largest].background
+        // Kişi resmi: ölçümün bulduğu ya da kareden aranan; ikizde kartın bütün parçalarında aynı (TV ilkinden çizer).
+        var face = card.firstNotNullOfOrNull { paints[it].portrait }
+        var image = card.firstNotNullOfOrNull { paints[it].portraitImage }
+        if (face == null) portrait?.invoke(card, fill)?.let { (found, cut) ->
+            face = found
+            image = cut
+        }
+        var union = taken[card[0]]
+        for (m in card) union = union.union(taken[m])
+        face?.let { union = union.union(it) }
         val box = TextBox(union.left - padX, union.top - padY, union.right + padX, union.bottom + padY)
         val step = (box.bottom - box.top) + CARD_GAP_LINES * line
         val blockers = paints.indices.filter { it !in card }.map { taken[it] } + twins
@@ -206,10 +218,7 @@ object MenuLayout {
             else -> return null
         }
         val twin = shifted(box, dy)
-        // Kartın zemini: en büyük parçanın (açıklama) ölçülen zemini.
-        fun area(b: TextBox) = (b.right - b.left) * (b.bottom - b.top)
-        val largest = card.maxByOrNull { area(paints[it].cover) }!!
-        val fill = paints[largest].background
+        val picture = face
         return card.map { m ->
             val spot = shifted(paints[m].cover, dy)
             var p = plain(paints[m]).copy(
@@ -218,8 +227,8 @@ object MenuLayout {
                 spotRoom = TextBox(spot.left, spot.top, max(spot.right, twin.right - padX), spot.bottom),
                 edge = paints[m].edge,
             )
-            paints[m].portrait?.let { face ->
-                p = p.copy(portrait = face, portraitTwin = shifted(face, dy), portraitImage = paints[m].portraitImage)
+            if (picture != null) {
+                p = p.copy(portrait = picture, portraitTwin = shifted(picture, dy), portraitImage = image, portraitSquare = true)
             }
             m to p
         }

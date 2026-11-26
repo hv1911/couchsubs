@@ -383,7 +383,11 @@ class SubtitleServer(
                         }
                         val image = paint.portraitImage
                         val at = paint.portraitTwin
-                        if (image != null && at != null) json["icon"] = mapOf("src" to image, "box" to boxJson(at))
+                        // Görev kartının resmi köşeli kare (TV uygulaması 0.9.122; eski TV yuvarlak çizer).
+                        if (image != null && at != null) {
+                            json["icon"] = if (paint.portraitSquare) mapOf("src" to image, "box" to boxJson(at), "square" to true)
+                                else mapOf("src" to image, "box" to boxJson(at))
+                        }
                     }
                 }
             }

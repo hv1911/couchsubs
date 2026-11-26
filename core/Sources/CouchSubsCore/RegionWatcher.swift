@@ -77,6 +77,8 @@ public final class RegionWatcher {
 
     private struct State {
         var signature: [UInt8]?
+        /// Son okumadaki menü biçimi (`menuCovers`; menü dışı alanda nil): ayar değişince görüntü durgun olsa da yeniden okunur.
+        var menuCover: Bool?
         /// Günlüğe son yazılan, güveni düşük olduğu için çevrilmeyen satırlar (aynı satırlar her turda yeniden yazılmaz).
         var unsureLogged: [String] = []
         /// Son okumanın sadeleştirilmiş yazısı; bir sonraki okuma aynıysa yazı kararlıdır.
@@ -421,10 +423,15 @@ public final class RegionWatcher {
         guard session == self.session else { return }
         var state = states[area.id] ?? State()
         let before = state.signature
-        let changed = state.signature.map {
+        // Menüde biçim ayarı (üstünü ört / yanına yaz) değişince görüntü durgun olsa da yeniden okunur ve çizilir.
+        let cover: Bool? = area.auto && area.menu ? menuCovers() : nil
+        let changed = (state.signature.map {
             ReadScheduler.changed($0, signature, threshold: ReadScheduler.defaultChangeThreshold)
-        } ?? true
+        } ?? true) || state.menuCover != cover
         state.signature = signature
+        // Ayar değişince satırların saklı çizim kipi de unutulur: yoksa eski biçim (örn. örtü) `steadyPaints` ile kalırdı.
+        if let old = state.menuCover, let cover, old != cover { rowPaints.removeAll() }
+        state.menuCover = cover
         guard changed else {
             // İz bir tur değişmedi: okunan yazı kararlıdır.
             state.unsteady = 0
@@ -503,15 +510,14 @@ public final class RegionWatcher {
         // özgün stilinde, grup grup ve çizim kipiyle (yanına yazma, ikiz kutu) çizilir: önceden tek kutu tuş simgelerinin
         // üstünü örtüyor, yazı boyu her okumada alanın kutusuna göre değişiyordu. Windows ve Android aynı.
         let painting = DispatchTime.now().uptimeNanoseconds
-        let menuCover: Bool? = area.auto && area.menu ? menuCovers() : nil
         var candidate = Self.candidate(own, in: region, frame: crop, auto: area.auto, menu: area.menu,
-                                       styled: true, kind: ScreenTextKind.of(area), screen: screen, menuCover: menuCover)
+                                       styled: true, kind: ScreenTextKind.of(area), screen: screen, menuCover: cover)
         if let blocks = candidate.blocks {
             let before = blocks.map { $0.paint?.mode }
             // Menüde biçim ayardan gelir (`MenuLayout`): görev kartının ikizi kartın hemen altında, harita düzeninde de çizilir
             // (harita düzenindeki ikiz yasağı ölçümün haritada yüzen ikizleri içindir).
             candidate.blocks = Self.steadyPaints(blocks, texts: Self.blockTexts(candidate).map(\.text), memory: &rowPaints,
-                                                 map: area.map && menuCover == nil)
+                                                 map: area.map && cover == nil)
             let kept = zip(before, candidate.blocks ?? []).filter { $0.0 != $0.1.paint?.mode }.count
             if kept > 0 { onLog?("ek alan \(area.name): \(kept) satırın çizim kipi korundu\(area.map ? " (harita düzeni)" : "")") }
         }
@@ -923,7 +929,20 @@ public final class RegionWatcher {
                     }.filter { !$0.isEmpty }
                     let shape = whole.map { Double($0.image.width) / Double(max(1, $0.image.height)) }
                         ?? Double(frame.width) / Double(max(1, frame.height))
-                    paints = MenuLayout.locked(paints, targets: targets, cards: cardParts, cover: cover, aspect: shape)
+                    // İkiz kartın kişi resmi ölçümde bulunmadıysa kareden aranır (ikiz kart resimsiz kalmasın).
+                    var findPortrait: (([Int], String) -> (box: TextBox, image: String?)?)?
+                    if let pixels {
+                        let covers = paints.map(\.cover)
+                        findPortrait = { card, fill in
+                            let heights = card.map { targets[$0].lineHeight }.sorted()
+                            guard !heights.isEmpty, let face = TextPainter.cardPortrait(
+                                covers: covers, card: card, background: fill, line: heights[heights.count / 2], pixels: pixels)
+                            else { return nil }
+                            return (box: face, image: TextPainter.portraitImage(face, pixels: pixels))
+                        }
+                    }
+                    paints = MenuLayout.locked(paints, targets: targets, cards: cardParts, cover: cover, aspect: shape,
+                                               portrait: findPortrait)
                 }
                 for (k, i) in painted.enumerated() where k < paints.count {
                     list[i].paint = whole == nil ? paints[k].placed(in: place) : paints[k]
