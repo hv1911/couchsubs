@@ -182,7 +182,7 @@ internal sealed class ScreenTextCanvas : Canvas
             var item = painted[i];
             var paint = item.Paint!;
             var place = placements[i];
-            // Menüde yanına yazılan Türkçenin etiketi (TextPaint.Label, MenuLayout; TV 0.9.122 ile aynı): koyu, yarı saydam,
+            // Menüde yanına yazılan Türkçenin etiketi (TextPaint.Label, MenuLayout; TV 0.9.123 ile aynı): koyu, yarı saydam,
             // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve kontursuz.
             var label = paint.Mode == PaintMode.Beside && Parse(paint.Label, Colors.Transparent) is var chip && chip != Colors.Transparent
                 ? chip : (Color?)null;

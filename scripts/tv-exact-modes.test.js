@@ -213,7 +213,7 @@ test('tek satırlık istemin dev ikizi yazının çevresine kırpılır; aynı s
   assert.ok(Math.abs(panel.top - (800 - 4)) <= 1 && panel.bottom > 960, 'bildirim ikizi değişmez: ' + panel.top + '-' + panel.bottom);
 });
 
-// Menüde "yanına yaz" (TV 0.9.122, bilgisayar MenuLayout, #1365): beta.105'te haritanın üstüne zeminsiz yazılan Türkçe
+// Menüde "yanına yaz" (TV 0.9.123, bilgisayar MenuLayout, #1365): beta.105'te haritanın üstüne zeminsiz yazılan Türkçe
 // desenli zeminde okunmuyordu. label gelince Türkçe koyu, yarı saydam, yuvarlak köşeli etikette, açık renkle ve kontursuz
 // yazılır; özgün yazı açık kalır, etiket (öğenin ilk çocuğu) yazıyı sarar ve çevresine payla taşar. Özgün yazı açık renkse
 // (gri liste, sarı vurgu) o renk kalır, koyuysa açık gri olur; seçili (ters renkli) satırın etiketi de ters renkli.
@@ -255,7 +255,7 @@ test('menüde yanına yazılan Türkçe koyu etikette, açık renkle; seçili sa
   }
 });
 
-// Menüdeki görev kartının ikizi (TV 0.9.122, bilgisayar MenuLayout, #1365): kartın kişi resmi ikizde de köşeli kare
+// Menüdeki görev kartının ikizi (TV 0.9.123, bilgisayar MenuLayout, #1365): kartın kişi resmi ikizde de köşeli kare
 // (icon.square); telefon bildiriminin kişi resmi eskisi gibi yuvarlak.
 test('görev kartının ikizindeki resim köşeli kare, telefon bildiriminin resmi yuvarlak', { skip: !browser && 'tarayıcı yok' }, () => {
   const card = (square) => ({ text: 'ADA HAYALLERİ', box: px(372, 196, 662, 244), line: 48 / H, lineH: 48 / H,

@@ -406,7 +406,7 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                     else android.graphics.LinearGradient(left, top, right, top, first, second, android.graphics.Shader.TileMode.CLAMP)
                 } else fill.color = first
                 if (covering) native.drawRect(left, top, right, bottom, fill)
-                // Menüde yanına yazılan Türkçenin etiketi (TextPaint.label, MenuLayout; TV 0.9.122 ile aynı): koyu, yarı saydam,
+                // Menüde yanına yazılan Türkçenin etiketi (TextPaint.label, MenuLayout; TV 0.9.123 ile aynı): koyu, yarı saydam,
                 // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve kontursuz.
                 val marked = if (!covering && paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE) parse(paint.label) else null
                 // Seçili (ters renkli: açık zemin, koyu yazı) satırın etiketi de ters renkli (TV ile aynı).

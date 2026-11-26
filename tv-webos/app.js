@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '0.9.123';
+  var APP_VERSION = '0.9.124';
   var t = window.t;
   var config = window.COUCHSUBS_CONFIG || {};
   var platform = window.COUCHSUBS_PLATFORM;
@@ -2208,7 +2208,7 @@
       keepSize: mode === 'twin' };
   }
 
-  // Menüde yanına yazılan Türkçenin etiketi (TV 0.9.122; bilgisayar MenuLayout, #1365): "Menülerde İngilizcenin üstünü
+  // Menüde yanına yazılan Türkçenin etiketi (TV 0.9.123; bilgisayar MenuLayout, #1365): "Menülerde İngilizcenin üstünü
   // ört" kapalıyken Türkçe İngilizcenin yanına koyu, yarı saydam, köşeleri yuvarlak etikete açık renkle yazılır (haritanın
   // ya da desenli zeminin üstünde konturlu yazı okunmuyordu, beta.105). Etiket yazıyı sarar, çevresine payla taşar
   // (yerleşim değişmez); seçili satırda ters renkli. Eski bilgisayar label göndermez: zeminsiz, konturlu yazı sürer.
@@ -2371,7 +2371,7 @@
         img.style.top = (icon.box.top * height - top) + 'px';
         img.style.width = ((icon.box.right - icon.box.left) * width) + 'px';
         img.style.height = ((icon.box.bottom - icon.box.top) * height) + 'px';
-        // Görev kartının resmi köşeli kare (TV 0.9.122, bilgisayar MenuLayout), telefon bildiriminin kişi resmi yuvarlak.
+        // Görev kartının resmi köşeli kare (TV 0.9.123, bilgisayar MenuLayout), telefon bildiriminin kişi resmi yuvarlak.
         img.style.borderRadius = icon.square === true ? '0' : '50%';
         panel.appendChild(img);
       }
@@ -2402,7 +2402,7 @@
       return Math.ceil(pageRect(probe.getBoundingClientRect(), scale).width) + 1;
     }
     var placed = exactLayout(inputs, measure);
-    // Etiket yazıyı sarar (TV 0.9.122): genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde kalır; boş alan etiketle
+    // Etiket yazıyı sarar (TV 0.9.123): genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde kalır; boş alan etiketle
     // dolmaz, şeridin etiketleri birbirine değmez.
     for (var li = 0; li < items.length; li++) {
       if (!besideLabel(items[li])) continue;

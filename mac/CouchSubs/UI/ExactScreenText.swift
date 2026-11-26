@@ -55,7 +55,7 @@ struct ExactScreenText: View {
         var edge: (color: Color, top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)?
     }
 
-    /// Menü etiketi yazıyı sarar (`TextPaint.label`; TV 0.9.122 ile aynı): genişliği en uzun satır kadar, özgüne yaslı kenarı
+    /// Menü etiketi yazıyı sarar (`TextPaint.label`; TV 0.9.123 ile aynı): genişliği en uzun satır kadar, özgüne yaslı kenarı
     /// yerinde; boş alan etiketle dolmaz.
     static func hugged(_ items: [ScreenTranslation.Item], _ inputs: [ScreenFit.ExactInput], _ placed: [ScreenFit.ExactPlacement],
                        measure: (String, Double) -> Double) -> [ScreenFit.ExactPlacement] {
@@ -195,7 +195,7 @@ struct ExactScreenText: View {
         }
     }
 
-    /// Menüde yanına yazılan Türkçenin etiketi (`TextPaint.label`, `MenuLayout`; TV 0.9.122 ile aynı): koyu, yarı saydam,
+    /// Menüde yanına yazılan Türkçenin etiketi (`TextPaint.label`, `MenuLayout`; TV 0.9.123 ile aynı): koyu, yarı saydam,
     /// yuvarlak köşeli; yazının çevresine `pad` kadar taşar, yerleşimi değiştirmez.
     struct LabelChip: View {
         let color: Color?
