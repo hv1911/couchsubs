@@ -182,7 +182,37 @@ internal sealed class ScreenTextCanvas : Canvas
             var item = painted[i];
             var paint = item.Paint!;
             var place = placements[i];
-            var foreground = new SolidColorBrush(Parse(item.Style?.Foreground, Colors.White));
+            // Menüde yanına yazılan Türkçenin etiketi (TextPaint.Label, MenuLayout; TV 0.9.122 ile aynı): koyu, yarı saydam,
+            // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve konturuz.
+            var label = paint.Mode == PaintMode.Beside && Parse(paint.Label, Colors.Transparent) is var chip && chip != Colors.Transparent
+                ? chip : (Color?)null;
+            var ink = Parse(item.Style?.Foreground, Colors.White);
+            var foreground = new SolidColorBrush(label is null || 0.299 * ink.R + 0.587 * ink.G + 0.114 * ink.B > 150
+                ? ink : Color.FromRgb(0xF2, 0xF2, 0xF2));
+            if (label is { } fill)
+            {
+                // Etiket yazıyı sarar: genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde.
+                var pad = Math.Max(2, Math.Round(place.FontSize * 0.2));
+                var tight = Math.Min(place.Width, place.Lines.Count == 0 ? place.Width : place.Lines.Max(line =>
+                    new FormattedText(line, Turkish, FlowDirection.LeftToRight, typefaces[i], Math.Max(0.1, place.FontSize), Brushes.White, dpi)
+                        .WidthIncludingTrailingWhitespace));
+                var chipLeft = inputs[i].Align switch
+                {
+                    "right" => place.Left + place.Width - tight,
+                    "center" => place.Left + (place.Width - tight) / 2,
+                    _ => place.Left,
+                };
+                var chipBox = new Border
+                {
+                    Width = Math.Max(1, tight + 2 * pad),
+                    Height = Math.Max(1, place.Height + 2 * pad),
+                    Background = new SolidColorBrush(Color.FromArgb(219, fill.R, fill.G, fill.B)),
+                    CornerRadius = new CornerRadius(Math.Max(2, Math.Round(pad * 0.8))),
+                };
+                SetLeft(chipBox, chipLeft - pad);
+                SetTop(chipBox, place.Top - pad);
+                Children.Add(chipBox);
+            }
             if (paint.Mode == PaintMode.Cover)
             {
                 var box = new Border
@@ -197,7 +227,7 @@ internal sealed class ScreenTextCanvas : Canvas
                 Children.Add(box);
             }
             // Yanına yazma: oyun dünyasının üstünde kutusuz; yazı rengine zıt yumuşak gölge okunurluğu sağlar.
-            var glow = paint.Mode == PaintMode.Beside
+            var glow = paint.Mode == PaintMode.Beside && label is null
                 ? new DropShadowEffect { ShadowDepth = 0, BlurRadius = Math.Max(3, place.FontSize * 0.25), Opacity = 0.9,
                                          Color = Light(Parse(item.Style?.Foreground, Colors.White)) ? Colors.Black : Colors.White }
                 : null;

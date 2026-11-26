@@ -270,6 +270,12 @@ public sealed partial class RegionWatcher
     /// Bu tür ekran yazısı çevrilir mi (Ayarlar'daki türler, <see cref="ScreenTextKind"/>); verilmezse hepsi.
     /// </summary>
     public Func<ScreenTextKind, bool>? Allows { get; set; }
+    /// <summary>
+    /// Menüde İngilizcenin üstü örtülür mü (Ayarlar › Ekran yazıları › "Menülerde İngilizcenin üstünü ört",
+    /// <c>UserSettings.ScreenTextMenuCover</c>; <see cref="MenuLayout"/>); verilmezse ya da false: Türkçe yanına, koyu
+    /// etikete yazılır.
+    /// </summary>
+    public Func<bool>? MenuCovers { get; set; }
     /// <summary>Otomatik alan okundu ama yazı yok ya da gürültü (<see cref="ScreenTextNoise"/>): alanın kimliği.</summary>
     public Action<string>? Rejected { get; set; }
     /// <summary>
@@ -926,12 +932,15 @@ public sealed partial class RegionWatcher
         // özgün stilinde, grup grup ve çizim kipiyle (yanına yazma, ikiz kutu) çizilir: önceden tek kutu tuş simgelerinin
         // üstünü örtüyor, yazı boyu her okumada alanın kutusuna göre değişiyordu. Mac ve Android aynı.
         var paintBegun = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool? menuCover = area.Auto && area.Menu ? MenuCovers?.Invoke() ?? false : null;
         var made = MakeCandidate(reading, area.Region, image, SplitsMenuRows(Game?.Invoke()), auto: area.Auto, menu: area.Menu,
-                                 styled: true, kind: ScreenTextKinds.Of(area), screen: frame);
+                                 styled: true, kind: ScreenTextKinds.Of(area), screen: frame, menuCover: menuCover);
         if (made.Blocks is { } blocks)
         {
+            // Menüde biçim ayardan gelir (MenuLayout): görev kartının ikizi kartın hemen altında, harita düzeninde de çizilir
+            // (harita düzenindeki ikiz yasağı ölçümün haritada yüzen ikizleri içindir).
             IReadOnlyList<Block> steady;
-            lock (rowPaints) steady = SteadyPaints(blocks, [.. BlockTexts(made).Select(row => row.Text)], rowPaints, area.Map);
+            lock (rowPaints) steady = SteadyPaints(blocks, [.. BlockTexts(made).Select(row => row.Text)], rowPaints, area.Map && menuCover is null);
             var kept = blocks.Zip(steady).Count(pair => pair.First.Paint?.Mode != pair.Second.Paint?.Mode);
             made = made with { Blocks = steady };
             if (kept > 0) Log?.Invoke($"ek alan {area.Name}: {kept} satırın çizim kipi korundu{(area.Map ? " (harita düzeni)" : "")}");
@@ -1011,7 +1020,7 @@ public sealed partial class RegionWatcher
     /// alandır; #1339).</param>
     internal static Candidate MakeCandidate(Reading reading, CropRegion region, Frame? frame = null, bool menuRows = false, bool phone = false,
                                             bool auto = false, bool menu = false, bool styled = false, ScreenTextKind? kind = null,
-                                            Frame? screen = null)
+                                            Frame? screen = null, bool? menuCover = null)
     {
         styled = (auto || styled) && !phone;
         // Ekran yazısı (otomatik alan, oyunun hazır yardım/mesaj alanı): simge ve bozuk okuma süzgeçleri menü durumundan
@@ -1129,6 +1138,15 @@ public sealed partial class RegionWatcher
                 var paints = TextPainter.Paints(targets, measured)
                     .Select(paint => paint.Portrait is { } face ? paint with { PortraitImage = TextPainter.PortraitImage(face, measured) } : paint)
                     .ToList();
+                // Menüde biçim ayardan gelir, her okumada yeniden seçilmez (#1365): üstünü ört ya da yanına yaz.
+                if (auto && menu && menuCover is { } coversMenus && paints.Count == targets.Count)
+                {
+                    var cardParts = cards
+                        .Select(card => (IReadOnlyList<int>)Enumerable.Range(0, painted.Count)
+                            .Where(k => card.All.Any(n => lines[n].Box is { } b && Inside(b, groups[painted[k]].Box))).ToList())
+                        .Where(parts => parts.Count > 0).ToList();
+                    paints = MenuLayout.Locked(paints, targets, cardParts, coversMenus, (double)measured.Width / Math.Max(1, measured.Height));
+                }
                 for (var k = 0; k < painted.Count && k < paints.Count; k++)
                 {
                     var block = list[painted[k]] with { Paint = screen is null ? paints[k].PlacedIn(place) : paints[k] };

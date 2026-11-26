@@ -146,6 +146,21 @@ CAPABILITIES = {
         ("windows", _WIN_TESTS + "ScreenMenuBarTests.cs", r"screen-menu\.json"),
         ("android", _DROID_TESTS + "ScreenMenuBarTest.kt", r"screen-menu\.json"),
     ],
+    # GitHub #1365: menüde çevirinin biçimi ayardan (üstünü ört / yanına koyu etikete yaz), her okumada yeniden seçilmez.
+    "Menüde biçim ayardan: üstünü ört ya da yanına etikete yaz (MenuLayout, menu-layout.json)": [
+        ("mac", _CORE + "MenuLayout.swift", r"public static func locked\("),
+        ("windows", _WIN + "MenuLayout.cs", r"public static List<TextPaint> Locked\("),
+        ("android", _DROID + "MenuLayout.kt", r"fun locked\("),
+        ("mac", _CORE + "RegionWatcher.swift", r"MenuLayout\.locked\("),
+        ("windows", _WIN + "RegionWatcher.cs", r"MenuLayout\.Locked\("),
+        ("android", _DROID + "Areas.kt", r"MenuLayout\.locked\("),
+        ("mac", _CORE + "SubtitleServer.swift", r'result\["label"\]'),
+        ("windows", _WIN + "SubtitleServer.cs", r'json\["label"\]'),
+        ("android", _DROID + "SubtitleServer.kt", r'json\["label"\]'),
+        ("mac", _CORE_TESTS + "MenuLayoutTests.swift", r"menu-layout\.json"),
+        ("windows", _WIN_TESTS + "MenuLayoutTests.cs", r"menu-layout\.json"),
+        ("android", _DROID_TESTS + "MenuLayoutTest.kt", r"menu-layout\.json"),
+    ],
     "Ortak deneme dosyası mission-card.json": [
         ("mac", _CORE_TESTS + "MissionCardTests.swift", r"mission-card\.json"),
         ("windows", _WIN_TESTS + "MissionCardTests.cs", r"mission-card\.json"),

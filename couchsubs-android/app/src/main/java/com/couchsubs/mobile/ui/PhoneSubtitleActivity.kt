@@ -405,14 +405,39 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                     else android.graphics.LinearGradient(left, top, right, top, first, second, android.graphics.Shader.TileMode.CLAMP)
                 } else fill.color = first
                 if (covering) native.drawRect(left, top, right, bottom, fill)
+                // Menüde yanına yazılan Türkçenin etiketi (TextPaint.label, MenuLayout; TV 0.9.122 ile aynı): koyu, yarı saydam,
+                // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve konturuz.
+                val label = if (!covering && paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE) parse(paint.label) else null
                 val text = paintFor(item.look?.bold == true, condensed(item), p.fontSize).apply {
-                    color = parse(item.surface?.foreground) ?: android.graphics.Color.WHITE
-                    if (paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE) {
+                    val ink = parse(item.surface?.foreground) ?: android.graphics.Color.WHITE
+                    val r = android.graphics.Color.red(ink)
+                    val g = android.graphics.Color.green(ink)
+                    val b = android.graphics.Color.blue(ink)
+                    color = if (label == null || 0.299 * r + 0.587 * g + 0.114 * b > 150) ink else android.graphics.Color.rgb(0xF2, 0xF2, 0xF2)
+                    if (paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE && label == null) {
                         // Okunurluk: açık yazıda koyu, koyu yazıda açık yumuşak gölge (oyunun istem yazısı gibi).
                         val light = android.graphics.Color.luminance(color) > 0.5f
                         setShadowLayer(maxOf(1f, p.fontSize.toFloat() * 0.12f), 0f, 0f,
                             if (light) android.graphics.Color.argb(200, 0, 0, 0) else android.graphics.Color.argb(200, 255, 255, 255))
                     }
+                }
+                if (label != null) {
+                    // Etiket yazıyı sarar: genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde.
+                    val pad = maxOf(2f, Math.round(p.fontSize * 0.2).toFloat())
+                    val corner = maxOf(2f, Math.round(pad * 0.8f).toFloat())
+                    val tight = minOf(right - left, p.lines.maxOfOrNull { text.measureText(it) } ?: (right - left))
+                    val chipLeft = when (inputs[k].second.align) {
+                        "right" -> right - tight
+                        "center" -> left + (right - left - tight) / 2
+                        else -> left
+                    }
+                    native.drawRoundRect(chipLeft - pad, top - pad, chipLeft + tight + pad, bottom + pad, corner, corner,
+                        android.graphics.Paint().apply {
+                            isAntiAlias = true
+                            style = android.graphics.Paint.Style.FILL
+                            color = android.graphics.Color.argb(219, android.graphics.Color.red(label), android.graphics.Color.green(label),
+                                android.graphics.Color.blue(label))
+                        })
                 }
                 val metrics = text.fontMetrics
                 for ((row, line) in p.lines.withIndex()) {

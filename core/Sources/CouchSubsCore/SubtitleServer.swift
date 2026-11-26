@@ -599,6 +599,8 @@ public final class SubtitleServer: @unchecked Sendable {
                 result["mode"] = paint.mode.rawValue
                 result["spot"] = Self.json(spot)
                 result["spotRoom"] = Self.json(room)
+                // Menüde yanına yazılan Türkçenin etiket zemini (TV uygulaması 0.9.122; eski TV zeminsiz yazar).
+                if paint.mode == .beside, let label = paint.label, isRGB(label) { result["label"] = label }
                 if paint.mode == .twin, let twin = paint.twin {
                     result["twinBox"] = Self.json(twin)
                     result["radius"] = unitNumber(paint.radius)

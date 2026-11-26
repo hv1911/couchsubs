@@ -7,7 +7,7 @@ namespace CouchSubs.Core;
 /// okuyamaz). Yalnız yazı değişince ölçülür (Mac: CouchSubsCore/TextPaint.swift, Android: TextPaint.kt; aynı kurallar ve
 /// eşikler). TV'ye öğenin <c>bg</c>, <c>bg2</c>, <c>bgDir</c>, <c>bgPat</c>, <c>fg</c>, <c>weight</c>, <c>upper</c>,
 /// <c>align</c>, <c>lineH</c>, <c>cover</c>, <c>grow</c>, <c>group</c> alanlarıyla (çizim kipi: <c>mode</c>, <c>spot</c>,
-/// <c>spotRoom</c>, <c>twinBox</c>, <c>radius</c>, <c>scale</c>, <c>tail</c>, <c>icon</c>, <c>edge</c>) gider; eski TV
+/// <c>spotRoom</c>, <c>twinBox</c>, <c>radius</c>, <c>scale</c>, <c>tail</c>, <c>icon</c>, <c>edge</c>, <c>label</c>) gider; eski TV
 /// bunları yok sayıp eski çizimi sürdürür.
 /// </summary>
 /// <param name="Background">Kutunun zemini (degradede başlangıç ucu: sol ya da üst). Opak çizilir.</param>
@@ -84,6 +84,12 @@ public sealed record TextPaint(string Background, double Pitch, TextBox Cover)
     /// çizgi): ikiz de aynı çizgiyle çizilir. null: çizgi yok. TV'ye <c>edge</c> ({color, top, right, bottom, left}).
     /// </summary>
     public EdgeLine? Edge { get; init; }
+    /// <summary>
+    /// beside: Türkçenin etiket zemini (menüde "yanına yaz" biçimi, <see cref="MenuLayout.LabelColor"/>): TV yazıyı bu renkte
+    /// yarı saydam, köşeleri yuvarlak etikete açık renkle yazar (konturuz). null: zeminsiz, özgün stilde konturla. TV'ye
+    /// <c>label</c>; eski TV yok sayıp zeminsiz yazar.
+    /// </summary>
+    public string? Label { get; init; }
 
     /// <summary>Kenar çizgisi: rengi ve her yandaki kalınlığı (kare yüksekliğine oranla; 0: o yanda çizgi yok).</summary>
     public sealed record EdgeLine(string Color, double Top, double Right, double Bottom, double Left);

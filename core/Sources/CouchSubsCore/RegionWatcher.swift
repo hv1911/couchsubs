@@ -284,6 +284,9 @@ public final class RegionWatcher {
     private let phoneTrace: DropLog
     /// Bu tür ekran yazısı çevrilir mi (Ayarlar'daki türler, `UserSettings.screenTextAllows`); varsayılan hepsi.
     public var allows: (ScreenTextKind) -> Bool = { _ in true }
+    /// Menüde İngilizcenin üstü örtülür mü (Ayarlar › Ekran yazıları › "Menülerde İngilizcenin üstünü ört",
+    /// `UserSettings.screenTextMenuCover`; `MenuLayout`): false (varsayılan) Türkçe yanına, koyu etikete yazılır.
+    public var menuCovers: () -> Bool = { false }
     /// Altyazı hattının son satırları ve alanı (bkz. `SubtitleEcho`); uygulama `SubtitleEcho.shared` verir.
     public var subtitleEcho: SubtitleEcho?
     /// Otomatik alan okundu ama yazı yok ya da gürültü (`ScreenTextNoise`): alanın kimliği (`ScreenTextDetector.reject`).
@@ -500,12 +503,15 @@ public final class RegionWatcher {
         // özgün stilinde, grup grup ve çizim kipiyle (yanına yazma, ikiz kutu) çizilir: önceden tek kutu tuş simgelerinin
         // üstünü örtüyor, yazı boyu her okumada alanın kutusuna göre değişiyordu. Windows ve Android aynı.
         let painting = DispatchTime.now().uptimeNanoseconds
+        let menuCover: Bool? = area.auto && area.menu ? menuCovers() : nil
         var candidate = Self.candidate(own, in: region, frame: crop, auto: area.auto, menu: area.menu,
-                                       styled: true, kind: ScreenTextKind.of(area), screen: screen)
+                                       styled: true, kind: ScreenTextKind.of(area), screen: screen, menuCover: menuCover)
         if let blocks = candidate.blocks {
             let before = blocks.map { $0.paint?.mode }
+            // Menüde biçim ayardan gelir (`MenuLayout`): görev kartının ikizi kartın hemen altında, harita düzeninde de çizilir
+            // (harita düzenindeki ikiz yasağı ölçümün haritada yüzen ikizleri içindir).
             candidate.blocks = Self.steadyPaints(blocks, texts: Self.blockTexts(candidate).map(\.text), memory: &rowPaints,
-                                                 map: area.map)
+                                                 map: area.map && menuCover == nil)
             let kept = zip(before, candidate.blocks ?? []).filter { $0.0 != $0.1.paint?.mode }.count
             if kept > 0 { onLog?("ek alan \(area.name): \(kept) satırın çizim kipi korundu\(area.map ? " (harita düzeni)" : "")") }
         }
@@ -768,9 +774,11 @@ public final class RegionWatcher {
     /// sayaç ("12:00 pm") çevrilmez. Önceden hazır alanın çevirisi tek siyah kutuda görev resminin de üstünü örtüyordu (#856).
     /// `kind`: alanın yerinden belli türü (`ScreenTextKind.of(area)`); otomatik alanda grupların çizim kipini seçer.
     /// `screen`: bütün kare (verilirse çizim kipi ve boş alan onda ölçülür; `frame` yalnız okunan alandır).
+    /// `menuCover`: menüdeki otomatik alanın biçimi (`MenuLayout`; true: üstünü ört, false: yanına yaz); nil: her yazının
+    /// kipini `TextPainter` seçer.
     static func candidate(_ reading: Reading, in region: CropRegion, frame: CGImage? = nil, auto: Bool = false,
                           menu: Bool = false, styled: Bool = false, kind: ScreenTextKind? = nil,
-                          screen: ScreenFrame? = nil) -> Candidate {
+                          screen: ScreenFrame? = nil, menuCover: Bool? = nil) -> Candidate {
         let styled = auto || styled
         // Ekran yazısı (otomatik alan, oyunun hazır yardım/mesaj alanı): simge ve bozuk okuma süzgeçleri menü durumundan
         // bağımsız (#1365 beta.105: menü düşünce "KM Collect…", "ocdich for the onurn Ape" geçip motora gidiyordu).
@@ -905,6 +913,17 @@ public final class RegionWatcher {
                 var paints = pixels.map { TextPainter.paints(targets, pixels: $0) } ?? []
                 for k in paints.indices {
                     if let face = paints[k].portrait, let pixels { paints[k].portraitImage = TextPainter.portraitImage(face, pixels: pixels) }
+                }
+                // Menüde biçim ayardan gelir, her okumada yeniden seçilmez (#1365): üstünü ört ya da yanına yaz.
+                if auto && menu, let cover = menuCover, paints.count == targets.count {
+                    let cardParts = cards.map { card in
+                        painted.indices.filter { k in
+                            card.all.contains { lines[$0].box.map { inside($0, groups[painted[k]].box) } ?? false }
+                        }
+                    }.filter { !$0.isEmpty }
+                    let shape = whole.map { Double($0.image.width) / Double(max(1, $0.image.height)) }
+                        ?? Double(frame.width) / Double(max(1, frame.height))
+                    paints = MenuLayout.locked(paints, targets: targets, cards: cardParts, cover: cover, aspect: shape)
                 }
                 for (k, i) in painted.enumerated() where k < paints.count {
                     list[i].paint = whole == nil ? paints[k].placed(in: place) : paints[k]

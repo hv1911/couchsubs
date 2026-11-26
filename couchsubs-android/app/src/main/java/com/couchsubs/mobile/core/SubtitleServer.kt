@@ -365,6 +365,9 @@ class SubtitleServer(
                     json["mode"] = paint.mode
                     json["spot"] = boxJson(spot)
                     json["spotRoom"] = boxJson(room)
+                    // Menüde yanına yazılan Türkçenin etiket zemini (TV uygulaması 0.9.122; eski TV zeminsiz yazar).
+                    val label = paint.label
+                    if (paint.mode == TextPaint.MODE_BESIDE && label != null && isRgb(label)) json["label"] = label
                     val twin = paint.twin
                     if (paint.mode == TextPaint.MODE_TWIN && twin != null) {
                         json["twinBox"] = boxJson(twin)
