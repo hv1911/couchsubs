@@ -1090,9 +1090,34 @@ public final class RegionWatcher {
             if titles.isEmpty { groups.append(group) }
             else { groups += ScreenTranslation.groups(from: Array(own.dropFirst(titles.count))) }
         }
-        return groups.enumerated().sorted {
+        return readingOrder(groups)
+    }
+
+    /// Grupların okuma sırası: yukarıdan aşağı satırlar; aynı satırdaki tek satırlık gruplar (dikeyde en az yarısı örtüşen)
+    /// soldan sağa. Önceden yalnız üst kenara bakılıyordu: menü şeridinin sekmeleri üst kenarlarındaki bir iki noktalık
+    /// farkla (uçtaki tuş simgesi, seçili sekmenin rengi, okuma oynaması) her karede başka sırada diziliyor, anahtar değişip
+    /// çeviri yeniden kuruluyordu (GTA 6 haritası: "JASON LUCIA MAP BRIEF PROGRESS", "PROGRESS JASON LUCIA MAP BRIEF"…).
+    /// Windows (RegionWatcher.ReadingOrder) ve Android (Areas.kt, RegionWatcher.readingOrder) aynı.
+    static func readingOrder(_ groups: [ScreenTranslation.Group]) -> [ScreenTranslation.Group] {
+        func oneLine(_ group: ScreenTranslation.Group) -> Bool { group.box.bottom - group.box.top <= 1.5 * group.lineHeight }
+        func rowShare(_ a: TextBox, _ b: TextBox) -> Double {
+            max(0, min(a.bottom, b.bottom) - max(a.top, b.top)) / max(1e-9, min(a.bottom - a.top, b.bottom - b.top))
+        }
+        var rows: [[(group: ScreenTranslation.Group, index: Int)]] = []
+        let ordered = groups.enumerated().sorted {
             ($0.element.box.top, $0.element.box.left, $0.offset) < ($1.element.box.top, $1.element.box.left, $1.offset)
-        }.map(\.element)
+        }
+        for (index, group) in ordered {
+            if oneLine(group), let last = rows.last, last.allSatisfy({ oneLine($0.group) }),
+               last.contains(where: { rowShare($0.group.box, group.box) >= 0.5 }) {
+                rows[rows.count - 1].append((group, index))
+            } else {
+                rows.append([(group, index)])
+            }
+        }
+        return rows.flatMap { row in
+            row.sorted { ($0.group.box.left, $0.index) < ($1.group.box.left, $1.index) }.map { $0.group }
+        }
     }
 
     /// Tek satırlık etiketin hizası komşularından: sağ kenarı başka etiketlerle hizalıysa (kol resminin solundaki tuş

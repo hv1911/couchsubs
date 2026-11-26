@@ -518,10 +518,24 @@ public enum ScreenTranslation {
 
     /// BÜYÜK HARFLİ satırdaki geniş boşluklar (`menuGap`) ayrı sekmelerdir: her sekme kendi satırı, kutusu kendi yazısı.
     /// Kare verilirse boşluklar görüntüden bulunur (`inkPieces`; yazı tanımanın sözcük kutuları boşluğu da kapsıyor),
-    /// yoksa sözcük yerlerinden. Satırda simge varsa ya da satır büyük harf değilse dokunulmaz. `aspect`: kutuların
-    /// oranlandığı görüntünün genişlik/yükseklik oranı. İki harfi olmayan parça atılır.
+    /// yoksa sözcük yerlerinden. Satır büyük harf değilse ya da yazının arasında simge varsa dokunulmaz. Simge yalnız
+    /// uçlardaysa (GTA 6 haritasının şeridindeki L1/R1) önce ayrılır (`withoutEdgeIcons`), kalan yazı bölünür; bölünmezse
+    /// satır olduğu gibi kalır. Önceden simgeli satıra hiç dokunulmuyordu: yazı tanıma L1'i "JASON & LUCIA"yla aynı satıra
+    /// katınca "JASON LUCIA MAP" tek etiket kalıp "JASON LUCIA HARİTASI" oluyordu. `aspect`: kutuların oranlandığı
+    /// görüntünün genişlik/yükseklik oranı. İki harfi olmayan parça atılır.
     public static func menuPieces(_ line: TextLine, aspect: Double = 16.0 / 9.0, frame: CGImage? = nil) -> [TextLine] {
-        guard let box = line.box, (line.icons ?? []).isEmpty, TextStyleSampler.isUpper(line.text),
+        if !(line.icons ?? []).isEmpty {
+            var trimmed = withoutEdgeIcons(line)
+            guard (trimmed.icons ?? []).isEmpty, trimmed.text != line.text, let inner = trimmed.box else { return [line] }
+            // Sekme boşluğu yazının boyuna göre ölçülür; simge harflerden uzun olduğu için kutuyu uzatmasın.
+            if let kept = trimmed.words, !kept.isEmpty {
+                trimmed.box = TextBox(left: inner.left, top: kept.map(\.box.top).min()!,
+                                      right: inner.right, bottom: kept.map(\.box.bottom).max()!)
+            }
+            let pieces = menuPieces(trimmed, aspect: aspect, frame: frame)
+            return pieces.count > 1 ? pieces : [line]
+        }
+        guard let box = line.box, TextStyleSampler.isUpper(line.text),
               line.text.split(whereSeparator: \.isWhitespace).count >= 2 else { return [line] }
         let limit = (box.bottom - box.top) * menuGap / max(0.1, aspect)
         if let frame { return inkPieces(line, frame: frame, gap: limit) }

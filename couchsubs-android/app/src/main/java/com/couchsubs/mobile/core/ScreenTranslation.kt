@@ -539,12 +539,26 @@ object ScreenTranslation {
     /**
      * BÜYÜK HARFLİ satırdaki geniş boşluklar ([MENU_GAP]) ayrı sekmelerdir: her sekme kendi satırı, kutusu kendi yazısı.
      * Kare verilirse boşluklar görüntüden bulunur ([inkPieces]; yazı tanımanın sözcük kutuları boşluğu da kapsıyor), yoksa
-     * sözcük yerlerinden. Satırda simge varsa ya da satır büyük harf değilse dokunulmaz. [aspect]: kutuların oranlandığı
-     * görüntünün genişlik/yükseklik oranı. İki harfi olmayan parça atılır.
+     * sözcük yerlerinden. Satır büyük harf değilse ya da yazının arasında simge varsa dokunulmaz. Simge yalnız uçlardaysa
+     * (GTA 6 haritasının şeridindeki L1/R1) önce ayrılır ([withoutEdgeIcons]), kalan yazı bölünür; bölünmezse satır olduğu
+     * gibi kalır. Önceden simgeli satıra hiç dokunulmuyordu: yazı tanıma L1'i "JASON & LUCIA"yla aynı satıra katınca
+     * "JASON LUCIA MAP" tek etiket kalıp "JASON LUCIA HARİTASI" oluyordu. [aspect]: kutuların oranlandığı görüntünün
+     * genişlik/yükseklik oranı. İki harfi olmayan parça atılır.
      */
     fun menuPieces(line: TextLine, aspect: Double = 16.0 / 9.0, frame: GrayFrame? = null): List<TextLine> {
+        if (!line.icons.isNullOrEmpty()) {
+            var trimmed = withoutEdgeIcons(line)
+            val inner = trimmed.box
+            if (!trimmed.icons.isNullOrEmpty() || trimmed.text == line.text || inner == null) return listOf(line)
+            // Sekme boşluğu yazının boyuna göre ölçülür; simge harflerden uzun olduğu için kutuyu uzatmasın.
+            val kept = trimmed.words
+            if (!kept.isNullOrEmpty())
+                trimmed = trimmed.copy(box = TextBox(inner.left, kept.minOf { it.box.top }, inner.right, kept.maxOf { it.box.bottom }))
+            val pieces = menuPieces(trimmed, aspect, frame)
+            return if (pieces.size > 1) pieces else listOf(line)
+        }
         val box = line.box ?: return listOf(line)
-        if (!line.icons.isNullOrEmpty() || !TextStyleSampler.isUpper(line.text) ||
+        if (!TextStyleSampler.isUpper(line.text) ||
             line.text.split(Regex("\\s+")).count { it.isNotEmpty() } < 2) return listOf(line)
         val limit = (box.bottom - box.top) * MENU_GAP / maxOf(0.1, aspect)
         if (frame != null) return inkPieces(line, frame, limit)

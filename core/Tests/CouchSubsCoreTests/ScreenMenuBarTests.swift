@@ -12,7 +12,10 @@ final class ScreenMenuBarTests: XCTestCase {
         struct Name: Decodable { let text: String; let keep: Bool }
         struct Clock: Decodable { let text: String; let clock: Bool }
         struct Word: Decodable { let text: String; let box: [Double] }
-        struct Menu: Decodable { let name: String; let text: String; let box: [Double]; let words: [Word]; let pieces: [String] }
+        struct Menu: Decodable {
+            let name: String; let text: String; let box: [Double]; let words: [Word]; let icons: [[Double]]?
+            let pieces: [String]; let top: Double?
+        }
         struct Edge: Decodable {
             let name: String; let text: String; let box: [Double]; let words: [Word]?; let icons: [[Double]]?
             let expected: String; let left: Double; let right: Double
@@ -21,6 +24,11 @@ final class ScreenMenuBarTests: XCTestCase {
         let clocks: [Clock]
         let menuLines: [Menu]
         let edgeIcons: [Edge]
+        struct Reading: Decodable {
+            struct Item: Decodable { let text: String; let box: [Double]; let lineHeight: Double }
+            let name: String; let groups: [Item]; let order: [String]
+        }
+        let readingOrder: [Reading]
     }
 
     private func vectors() throws -> Vectors {
@@ -43,12 +51,25 @@ final class ScreenMenuBarTests: XCTestCase {
         }
     }
 
+    /// Uçlarda tuş simgesi (L1/R1) olan şerit de bölünür; yazının arasında simge olan satıra dokunulmaz.
     func testMenuBarSplitsIntoTabs() throws {
         for menu in try vectors().menuLines {
-            let line = TextLine(menu.text, box: box(menu.box), words: menu.words.map { TextWord($0.text, box: box($0.box)) })
+            let line = TextLine(menu.text, box: box(menu.box), words: menu.words.map { TextWord($0.text, box: box($0.box)) },
+                                icons: menu.icons?.map { IconSlot(box: box($0), text: "") })
             let pieces = ScreenTranslation.menuPieces(line)
             XCTAssertEqual(pieces.map(\.text), menu.pieces, menu.name)
-            for piece in pieces { XCTAssertEqual(piece.box?.top, menu.box[1], menu.name) }
+            for piece in pieces { XCTAssertEqual(piece.box?.top ?? -1, menu.top ?? menu.box[1], accuracy: 1e-9, menu.name) }
+        }
+    }
+
+    /// Grupların okuma sırası: aynı satırdaki tek satırlık gruplar üst kenarları bir iki nokta oynasa da soldan sağa,
+    /// satırlar yukarıdan aşağı; çok satırlı paragraf satıra katılmaz.
+    func testGroupsReadRowByRow() throws {
+        for vector in try vectors().readingOrder {
+            let groups = vector.groups.map {
+                ScreenTranslation.Group(paragraphs: [$0.text], box: box($0.box), lineHeight: $0.lineHeight)
+            }
+            XCTAssertEqual(RegionWatcher.readingOrder(groups).map { $0.paragraphs[0] }, vector.order, vector.name)
         }
     }
 

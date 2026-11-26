@@ -62,17 +62,39 @@ public class ScreenMenuBarTests
         }
     }
 
+    /// <summary>Uçlarda tuş simgesi (L1/R1) olan şerit de bölünür; yazının arasında simge olan satıra dokunulmaz.</summary>
     [Fact]
     public void MenuBarSplitsIntoTabs()
     {
         foreach (var menu in Vectors().GetProperty("menuLines").EnumerateArray())
         {
+            var name = menu.GetProperty("name").GetString()!;
             var box = Box(menu.GetProperty("box"));
-            var line = new TextLine(menu.GetProperty("text").GetString()!, box, null, Words(menu));
+            IReadOnlyList<IconSlot>? icons = menu.TryGetProperty("icons", out var list)
+                ? [.. list.EnumerateArray().Select(icon => new IconSlot(Box(icon), ""))] : null;
+            var line = new TextLine(menu.GetProperty("text").GetString()!, box, null, Words(menu), icons);
             var pieces = ScreenTranslation.MenuPieces(line);
             var expected = menu.GetProperty("pieces").EnumerateArray().Select(item => item.GetString()!).ToArray();
-            Assert.Equal(expected, pieces.Select(piece => piece.Text));
-            Assert.All(pieces, piece => Assert.Equal(box.Top, piece.Box!.Value.Top));
+            Assert.True(expected.SequenceEqual(pieces.Select(piece => piece.Text)), name);
+            var top = menu.TryGetProperty("top", out var value) ? value.GetDouble() : box.Top;
+            Assert.All(pieces, piece => Assert.True(Math.Abs(top - piece.Box!.Value.Top) < 1e-9, name));
+        }
+    }
+
+    /// <summary>
+    /// Grupların okuma sırası: aynı satırdaki tek satırlık gruplar üst kenarları bir iki nokta oynasa da soldan sağa, satırlar
+    /// yukarıdan aşağı; çok satırlı paragraf satıra katılmaz.
+    /// </summary>
+    [Fact]
+    public void GroupsReadRowByRow()
+    {
+        foreach (var vector in Vectors().GetProperty("readingOrder").EnumerateArray())
+        {
+            var groups = vector.GetProperty("groups").EnumerateArray().Select(group => new ScreenTranslation.Group(
+                [group.GetProperty("text").GetString()!], Box(group.GetProperty("box")), group.GetProperty("lineHeight").GetDouble())).ToList();
+            var expected = vector.GetProperty("order").EnumerateArray().Select(item => item.GetString()!).ToArray();
+            var order = RegionWatcher.ReadingOrder(groups).Select(group => group.Paragraphs[0]).ToArray();
+            Assert.True(expected.SequenceEqual(order), vector.GetProperty("name").GetString() + ": " + string.Join(" | ", order));
         }
     }
 

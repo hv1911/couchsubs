@@ -577,12 +577,25 @@ public static class ScreenTranslation
     /// <summary>
     /// BÜYÜK HARFLİ satırdaki geniş boşluklar (<see cref="MenuGap"/>) ayrı sekmelerdir: her sekme kendi satırı, kutusu kendi
     /// yazısı. Kare verilirse boşluklar görüntüden bulunur (<see cref="InkPieces"/>; yazı tanımanın sözcük kutuları boşluğu
-    /// da kapsıyor), yoksa sözcük yerlerinden. Satırda simge varsa ya da satır büyük harf değilse dokunulmaz.
+    /// da kapsıyor), yoksa sözcük yerlerinden. Satır büyük harf değilse ya da yazının arasında simge varsa dokunulmaz.
+    /// Simge yalnız uçlardaysa (GTA 6 haritasının şeridindeki L1/R1) önce ayrılır (<see cref="WithoutEdgeIcons"/>), kalan
+    /// yazı bölünür; bölünmezse satır olduğu gibi kalır. Önceden simgeli satıra hiç dokunulmuyordu: yazı tanıma L1'i
+    /// "JASON &amp; LUCIA"yla aynı satıra katınca "JASON LUCIA MAP" tek etiket kalıp "JASON LUCIA HARİTASI" oluyordu.
     /// <paramref name="aspect"/>: kutuların oranlandığı görüntünün genişlik/yükseklik oranı. İki harfi olmayan parça atılır.
     /// </summary>
     public static IReadOnlyList<TextLine> MenuPieces(TextLine line, double aspect = 16.0 / 9.0, Frame? frame = null)
     {
-        if (line.Box is not { } box || line.Icons is { Count: > 0 } || !TextStyleSampler.IsUpper(line.Text) || WordCount(line.Text) < 2)
+        if (line.Icons is { Count: > 0 })
+        {
+            var trimmed = WithoutEdgeIcons(line);
+            if (trimmed.Icons is { Count: > 0 } || trimmed.Text == line.Text || trimmed.Box is not { } inner) return [line];
+            // Sekme boşluğu yazının boyuna göre ölçülür; simge harflerden uzun olduğu için kutuyu uzatmasın.
+            if (trimmed.Words is { Count: > 0 } kept)
+                trimmed = trimmed with { Box = new TextBox(inner.Left, kept.Min(word => word.Box.Top), inner.Right, kept.Max(word => word.Box.Bottom)) };
+            var pieces = MenuPieces(trimmed, aspect, frame);
+            return pieces.Count > 1 ? pieces : [line];
+        }
+        if (line.Box is not { } box || !TextStyleSampler.IsUpper(line.Text) || WordCount(line.Text) < 2)
             return [line];
         var limit = (box.Bottom - box.Top) * MenuGap / Math.Max(0.1, aspect);
         if (frame is not null) return InkPieces(line, frame, limit);

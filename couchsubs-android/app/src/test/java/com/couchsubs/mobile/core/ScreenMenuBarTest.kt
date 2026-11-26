@@ -40,15 +40,33 @@ class ScreenMenuBarTest {
         }
     }
 
+    /** Uçlarda tuş simgesi (L1/R1) olan şerit de bölünür; yazının arasında simge olan satıra dokunulmaz. */
     @Test
     fun menuBarSplitsIntoTabs() {
         for (menu in objects("menuLines")) {
             val name = menu.getString("name")
-            val line = TextLine(menu.getString("text"), box(menu.getJSONArray("box")), words(menu.getJSONArray("words")))
+            val icons = menu.optJSONArray("icons")?.let { a -> (0 until a.length()).map { IconSlot(box(a.getJSONArray(it)), "") } }
+            val line = TextLine(menu.getString("text"), box(menu.getJSONArray("box")), words(menu.getJSONArray("words")), icons)
             val pieces = ScreenTranslation.menuPieces(line)
             val expected = menu.getJSONArray("pieces").let { a -> (0 until a.length()).map { a.getString(it) } }
             assertEquals(name, expected, pieces.map { it.text })
-            for (piece in pieces) assertEquals(name, line.box!!.top, piece.box!!.top, 0.0)
+            val top = if (menu.has("top")) menu.getDouble("top") else line.box!!.top
+            for (piece in pieces) assertEquals(name, top, piece.box!!.top, 1e-9)
+        }
+    }
+
+    /**
+     * Grupların okuma sırası: aynı satırdaki tek satırlık gruplar üst kenarları bir iki nokta oynasa da soldan sağa,
+     * satırlar yukarıdan aşağı; çok satırlı paragraf satıra katılmaz.
+     */
+    @Test
+    fun groupsReadRowByRow() {
+        for (vector in objects("readingOrder")) {
+            val groups = vector.getJSONArray("groups").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.map {
+                ScreenTranslation.Group(listOf(it.getString("text")), box(it.getJSONArray("box")), it.getDouble("lineHeight"))
+            }
+            val expected = vector.getJSONArray("order").let { a -> (0 until a.length()).map { a.getString(it) } }
+            assertEquals(vector.getString("name"), expected, RegionWatcher.readingOrder(groups).map { it.paragraphs[0] })
         }
     }
 

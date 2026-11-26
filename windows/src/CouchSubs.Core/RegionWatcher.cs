@@ -1109,7 +1109,32 @@ public sealed partial class RegionWatcher
             if (!menu && heights.Count >= 2 && heights.Max() > heights.Min() * (1.15 / 0.85)) continue;
             result.AddRange(body.Count == members.Count ? [group] : ScreenTranslation.GroupsFromLines(body, menuRows));
         }
-        return [.. result.OrderBy(group => group.Box.Top).ThenBy(group => group.Box.Left)];
+        return ReadingOrder(result);
+    }
+
+    /// <summary>
+    /// Grupların okuma sırası: yukarıdan aşağı satırlar; aynı satırdaki tek satırlık gruplar (dikeyde en az yarısı örtüşen)
+    /// soldan sağa. Önceden yalnız üst kenara bakılıyordu: menü şeridinin sekmeleri üst kenarlarındaki bir iki noktalık
+    /// farkla (uçtaki tuş simgesi, seçili sekmenin rengi, okuma oynaması) her karede başka sırada diziliyor, anahtar değişip
+    /// çeviri yeniden kuruluyordu (GTA 6 haritası: "JASON LUCIA MAP BRIEF PROGRESS", "PROGRESS JASON LUCIA MAP BRIEF"…).
+    /// Mac (RegionWatcher.readingOrder) ve Android (Areas.kt, RegionWatcher.readingOrder) aynı.
+    /// </summary>
+    internal static List<ScreenTranslation.Group> ReadingOrder(IReadOnlyList<ScreenTranslation.Group> groups)
+    {
+        static bool OneLine(ScreenTranslation.Group group) => group.Box.Bottom - group.Box.Top <= 1.5 * group.LineHeight;
+        static double Rows(TextBox a, TextBox b) => Math.Max(0, Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top))
+            / Math.Max(1e-9, Math.Min(a.Bottom - a.Top, b.Bottom - b.Top));
+        var rows = new List<List<(ScreenTranslation.Group Group, int Index)>>();
+        foreach (var item in groups.Select((group, index) => (Group: group, Index: index))
+                     .OrderBy(item => item.Group.Box.Top).ThenBy(item => item.Group.Box.Left).ThenBy(item => item.Index))
+        {
+            if (OneLine(item.Group) && rows.Count > 0 && rows[^1].All(other => OneLine(other.Group))
+                && rows[^1].Any(other => Rows(other.Group.Box, item.Group.Box) >= 0.5))
+                rows[^1].Add(item);
+            else
+                rows.Add([item]);
+        }
+        return [.. rows.SelectMany(row => row.OrderBy(item => item.Group.Box.Left).ThenBy(item => item.Index)).Select(item => item.Group)];
     }
 
     /// <summary>Kullanıcının alanında görev kartının parçaları kendi gruplarıdır, kalan satırlar her zamanki gibi.</summary>

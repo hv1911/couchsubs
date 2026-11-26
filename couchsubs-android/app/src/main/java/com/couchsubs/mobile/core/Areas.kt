@@ -601,7 +601,28 @@ class RegionWatcher(
                 groups += titles.map(::single)
                 if (titles.isEmpty()) groups += group else groups += ScreenTranslation.groupLines(own.drop(titles.size))
             }
-            return groups.withIndex().sortedWith(compareBy({ it.value.box.top }, { it.value.box.left }, { it.index })).map { it.value }
+            return readingOrder(groups)
+        }
+
+        /**
+         * Grupların okuma sırası: yukarıdan aşağı satırlar; aynı satırdaki tek satırlık gruplar (dikeyde en az yarısı
+         * örtüşen) soldan sağa. Önceden yalnız üst kenara bakılıyordu: menü şeridinin sekmeleri üst kenarlarındaki bir iki
+         * noktalık farkla (uçtaki tuş simgesi, seçili sekmenin rengi, okuma oynaması) her karede başka sırada diziliyor,
+         * anahtar değişip çeviri yeniden kuruluyordu (GTA 6 haritası: "JASON LUCIA MAP BRIEF PROGRESS", "PROGRESS JASON
+         * LUCIA MAP BRIEF"…). Mac (RegionWatcher.readingOrder) ve Windows (RegionWatcher.ReadingOrder) aynı.
+         */
+        internal fun readingOrder(groups: List<ScreenTranslation.Group>): List<ScreenTranslation.Group> {
+            fun oneLine(group: ScreenTranslation.Group) = group.box.bottom - group.box.top <= 1.5 * group.lineHeight
+            fun rowShare(a: TextBox, b: TextBox) = maxOf(0.0, minOf(a.bottom, b.bottom) - maxOf(a.top, b.top)) /
+                maxOf(1e-9, minOf(a.bottom - a.top, b.bottom - b.top))
+            val rows = mutableListOf<MutableList<IndexedValue<ScreenTranslation.Group>>>()
+            for (item in groups.withIndex().sortedWith(compareBy({ it.value.box.top }, { it.value.box.left }, { it.index }))) {
+                val last = rows.lastOrNull()
+                if (oneLine(item.value) && last != null && last.all { oneLine(it.value) } &&
+                    last.any { rowShare(it.value.box, item.value.box) >= 0.5 }) last += item
+                else rows += mutableListOf(item)
+            }
+            return rows.flatMap { row -> row.sortedWith(compareBy({ it.value.box.left }, { it.index })).map { it.value } }
         }
 
         /**

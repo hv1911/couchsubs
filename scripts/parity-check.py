@@ -132,6 +132,16 @@ CAPABILITIES = {
         ("windows", _WIN_TESTS + "ScreenMenuBarTests.cs", r"screen-menu\.json"),
         ("android", _DROID_TESTS + "ScreenMenuBarTest.kt", r"screen-menu\.json"),
     ],
+    # GTA 6 haritasının üst şeridi: uçlarında L1/R1 okunan şerit de sekmelere bölünür, aynı satırdaki gruplar soldan sağa
+    # okunur (üst kenarı bir iki nokta oynayan sekmeler her karede başka sırada dizilip çeviri yeniden kuruluyordu).
+    "Menü şeridi: uçtaki tuş simgesiyle bölünme ve satır satır okuma sırası (ReadingOrder)": [
+        ("mac", _CORE + "RegionWatcher.swift", r"static func readingOrder\("),
+        ("windows", _WIN + "RegionWatcher.cs", r"static List<ScreenTranslation\.Group> ReadingOrder\("),
+        ("android", _DROID + "Areas.kt", r"fun readingOrder\("),
+        ("mac", _CORE_TESTS + "ScreenMenuBarTests.swift", r"func testGroupsReadRowByRow"),
+        ("windows", _WIN_TESTS + "ScreenMenuBarTests.cs", r"void GroupsReadRowByRow"),
+        ("android", _DROID_TESTS + "ScreenMenuBarTest.kt", r"fun groupsReadRowByRow"),
+    ],
     "Ortak deneme dosyası mission-card.json": [
         ("mac", _CORE_TESTS + "MissionCardTests.swift", r"mission-card\.json"),
         ("windows", _WIN_TESTS + "MissionCardTests.cs", r"mission-card\.json"),
