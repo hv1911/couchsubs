@@ -107,6 +107,9 @@ public final class ScreenTextDetector: @unchecked Sendable {
     public var onLog: ((String) -> Void)?
     private var notes: [String] = []
     private var mapPanelSeen: String?
+    /// Tanınan harita düzeninin paneli ve son kanıtın anı (`mapHoldMs`).
+    private var mapHeld: (left: Bool, width: Int)?
+    private var mapHeldAt = 0
 
     public init() {}
 
@@ -265,6 +268,7 @@ public final class ScreenTextDetector: @unchecked Sendable {
             menuExpired = false
             dialogueAt = nil
             mapPanelSeen = nil
+            mapHeld = nil
             notes = []
         }
     }
@@ -493,6 +497,7 @@ public final class ScreenTextDetector: @unchecked Sendable {
     private func isMenu(_ all: [(cells: Cells, tiles: [Int])], candidate: [Bool], now: Int) -> Bool {
         // Konuşma satırı az önce okundu: menü yok (#1240).
         if let spoken = dialogueAt, now - spoken <= Self.dialogueMs {
+            mapHeld = nil
             notePanel(nil, quietShare: 0)
             return false
         }
@@ -502,12 +507,14 @@ public final class ScreenTextDetector: @unchecked Sendable {
         let outside = tiles.indices.filter { !inside.contains($0) }
         let quietShare = outside.isEmpty ? 0 : Double(outside.filter { tiles[$0].quiet }.count) / Double(outside.count)
         // Harita düzeni (#1365): keskin harita sakin zemin ve üç bileşen şartını karşılamıyor; düzen tanınınca eşikler
-        // gevşer. Düzen yoksa eşikler eskisi gibi.
-        let panel = components.count >= Self.mapComponents && quietShare >= Self.mapQuietShare
-            ? mapPanel(text: { candidate[$0] || inside.contains($0) }, now: now) : nil
+        // gevşer. Düzen yoksa eşikler eskisi gibi. Tanınan düzen panel yerinde durdukça sürer (`heldMapPanel`).
+        let text: (Int) -> Bool = { candidate[$0] || inside.contains($0) }
+        let found = components.count >= Self.mapComponents && quietShare >= Self.mapQuietShare
+            ? mapPanel(text: text, now: now) : nil
+        let (panel, held) = heldMapPanel(found, text: text, now: now)
         notePanel(panel, quietShare: quietShare)
         guard components.count >= (panel == nil ? Self.menuComponents : Self.mapComponents),
-              quietShare >= (panel == nil ? Self.menuQuietShare : Self.mapQuietShare) else { return false }
+              held || quietShare >= (panel == nil ? Self.menuQuietShare : Self.mapQuietShare) else { return false }
         if menu, components.contains(where: { component in
             Double(component.tiles.filter(menuAnchors.contains).count) >= Self.keepOverlap * Double(component.tiles.count)
         }) {
@@ -562,12 +569,16 @@ public final class ScreenTextDetector: @unchecked Sendable {
     }
 
     /// `tile`: karonun ortalama parlaklığı ve yerinde sabit olup olmadığı (testler sentetik karolarla çağırır).
-    static func mapPanel(text inside: (Int) -> Bool,
-                         tile: (Int) -> (mean: Double, steady: Bool)) -> (left: Bool, width: Int)? {
-        for left in [true, false] {
+    /// `held`: önceden tanınmış panel; verilirse yalnız onun yanında ve ±1 karo genişlikte koyu tam boy panel ve listesi
+    /// aranır, haritanın açıklığı ve sabitliği aranmaz (`heldMapPanel`).
+    static func mapPanel(text inside: (Int) -> Bool, tile: (Int) -> (mean: Double, steady: Bool),
+                         held: (left: Bool, width: Int)? = nil) -> (left: Bool, width: Int)? {
+        for left in held.map({ [$0.left] }) ?? [true, false] {
             // `k`: panelin dış kenarından içeri doğru sütun sırası.
             func column(_ k: Int) -> Int { left ? k : columns - 1 - k }
-            for width in mapPanelColumns {
+            let widths = held.map { max(mapPanelColumns.lowerBound, $0.width - 1)...min(mapPanelColumns.upperBound, $0.width + 1) }
+                ?? mapPanelColumns
+            for width in widths {
                 var ground: [Double] = []
                 var panelRows = 0
                 for row in 0..<rows {
@@ -592,7 +603,7 @@ public final class ScreenTextDetector: @unchecked Sendable {
                     if inside(a) || tile(a).mean < mapPanelDark { edgeIn += 1 }
                     if inside(b) || tile(b).mean >= light { edgeOut += 1 }
                 }
-                guard Double(edgeIn) >= 0.75 * Double(rows), Double(edgeOut) >= 0.75 * Double(rows) else { continue }
+                guard Double(edgeIn) >= 0.75 * Double(rows), held != nil || Double(edgeOut) >= 0.75 * Double(rows) else { continue }
                 // Harita: panel dışındaki yazısız karoların çoğu açık ve yerinde sabit (oyun sahnesinde kamera oynar).
                 var mapTiles = 0, lit = 0, steady = 0
                 for row in 0..<rows {
@@ -605,14 +616,44 @@ public final class ScreenTextDetector: @unchecked Sendable {
                         if t.steady { steady += 1 }
                     }
                 }
-                guard mapTiles > 0, Double(lit) >= mapShare * Double(mapTiles), Double(steady) >= mapShare * Double(mapTiles)
-                else { continue }
+                guard held != nil || (mapTiles > 0 && Double(lit) >= mapShare * Double(mapTiles)
+                    && Double(steady) >= mapShare * Double(mapTiles)) else { continue }
                 // Panelde liste: en az üç karo satırında panelin dış yarısında yazı.
                 let list = (0..<rows).filter { row in (0..<max(1, width / 2)).contains { inside(row * columns + column($0)) } }.count
                 if list >= 3 { return (left, width) }
             }
         }
         return nil
+    }
+
+    /// Tanınmış harita düzeni en az bu kadar süre kanıtsız da sürer (seçim çubuğunun bir karelik parlaması).
+    public static let mapHoldMs = 700
+
+    /// Tanınmış harita düzeni panel yerinde durdukça sürer (beta.105 testi, #1365): listede seçim değişince oyun haritayı
+    /// seçilen göreve kaydırıyor, kimi zaman karartıp yakınlaştırıyor; harita "açık ve yerinde sabit" şartını kaybedince
+    /// düzen düşüyor (5 dakikada 12 "bulundu", 11 "bitti"), düştüğü her anda hazır Help/Messages alanları aynı listeyi ve
+    /// kartı yeniden okuyup haritanın üstüne ikiz kutular çiziyor, simge ve bozuk okuma süzgeçleri kalkıyordu. Tanındıktan
+    /// sonra aynı yandaki koyu panel (genişliği ±1 karo) ve listesi yerinde durdukça harita ve sakin zemin aranmaz
+    /// (`mapPanel(held:)`); panel bulunamazsa düzen `mapHoldMs` daha sürer, sonra biter. Dönen `held`: düzen yalnız
+    /// panelden sürüyor (sakin zemin şartı aranmaz). Windows ve Android aynı.
+    private func heldMapPanel(_ found: (left: Bool, width: Int)?, text: @escaping (Int) -> Bool,
+                              now: Int) -> ((left: Bool, width: Int)?, Bool) {
+        if let found {
+            mapHeld = found
+            mapHeldAt = now
+            return (found, false)
+        }
+        guard let last = mapHeld else { return (nil, false) }
+        // Panelin yeri ve genişliği tanındığı gibi kalır (günlükte genişlik değişti diye düzen yeniden "bulunmaz").
+        if Self.mapPanel(text: text, tile: { index in
+            (self.tiles[index].mean, now - self.tiles[index].stableSince >= Self.uiStableMs)
+        }, held: last) != nil {
+            mapHeldAt = now
+            return (last, true)
+        }
+        if now - mapHeldAt <= Self.mapHoldMs { return (last, true) }
+        mapHeld = nil
+        return (nil, false)
     }
 
     /// Harita düzeninin bulunuşu ve bitişi günlüğe bir kez yazılır (`onLog`; #1365 tanısı).
@@ -672,12 +713,34 @@ public final class ScreenTextDetector: @unchecked Sendable {
     }
 
     private func current() -> [ExtraArea] {
-        tracked.map {
-            var area = ExtraArea(id: $0.id, name: Self.areaName, region: Self.region($0.cells), auto: true)
-            area.menu = $0.menu
+        let panel = mapHeld
+        return tracked.map { item in
+            let full = Self.region(item.cells)
+            let region = panel.map { Self.clipped(full, tiles: item.tiles, to: $0) } ?? full
+            var area = ExtraArea(id: item.id, name: Self.areaName, region: region, auto: true)
+            area.menu = item.menu
             return area
         }
     }
+
+    /// Harita düzeninde panelin içindeki alan (yazı karolarının en az `mapClipShare`'i panelde) panelin kenarında biter
+    /// (beta.105 testi, #1365): alan bir karo taşıp haritanın yazılarını da okuyordu; yer adları listeye ("STORY Draper Islan
+    /// Rob Vicki's Boss…", "OPTIONAL Port G…") karışıp çeviriye giriyordu. Kenarda kesilen harita yazısı menüde zaten atılır
+    /// (`cutAtAreaEdge`). Panelin dışındaki alanlara (görev kartı, tuş çubuğu) dokunulmaz. Windows ve Android aynı.
+    static func clipped(_ region: CropRegion, tiles: [Int], to panel: (left: Bool, width: Int)) -> CropRegion {
+        guard !tiles.isEmpty else { return region }
+        let inside = tiles.filter { panel.left ? $0 % columns < panel.width : $0 % columns >= columns - panel.width }.count
+        guard Double(inside) >= mapClipShare * Double(tiles.count) else { return region }
+        let edge = Double(panel.width) / Double(columns)
+        return panel.left
+            ? CropRegion(top: region.top, bottom: region.bottom, left: region.left, right: min(region.right, edge + mapClipMargin))
+            : CropRegion(top: region.top, bottom: region.bottom, left: max(region.left, 1 - edge - mapClipMargin), right: region.right)
+    }
+
+    /// Alanın panele ait sayılması için yazı karolarının paneldeki en az payı.
+    static let mapClipShare = 0.6
+    /// Panel kenarının ötesinde okunan pay (çeyrek karo).
+    static let mapClipMargin = 0.25 / Double(columns)
 
     /// Karo dikdörtgeni yatayda her yandan bir karo, dikeyde yarım karo genişletilmiş, 0..1'e kırpılmış bölge.
     static func region(_ cells: Cells) -> CropRegion {

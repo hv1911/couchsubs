@@ -536,6 +536,15 @@ public enum ScreenTranslation {
         guard let box = line.box, TextStyleSampler.isUpper(line.text),
               line.text.split(whereSeparator: \.isWhitespace).count >= 2 else { return [line] }
         let limit = textHeight(line) * menuGap / max(0.1, aspect)
+        let pieces = gapPieces(line, box: box, gap: limit, frame: frame)
+        // Boşluğa göre bölme şeridi sözlükteki etiketlere ayıramadıysa (beta.105: "JASON LUCIA MAP BRIEF" + "PROGRESS")
+        // sözlükle bölünür.
+        if !pieces.allSatisfy({ isLabelPiece($0.text) }), let labelled = labelPieces(line) { return labelled }
+        return pieces
+    }
+
+    /// Boşluğa göre bölme: karedeki yazı sütunları (`inkPieces`), kare yoksa sözcük yerleri.
+    private static func gapPieces(_ line: TextLine, box: TextBox, gap limit: Double, frame: CGImage?) -> [TextLine] {
         if let frame { return inkPieces(line, frame: frame, gap: limit) }
         guard let words = line.words, words.count >= 2 else { return [line] }
         var runs: [[TextWord]] = [[words[0]]]
@@ -550,6 +559,58 @@ public enum ScreenTranslation {
                             box: TextBox(left: span.left, top: box.top, right: span.right, bottom: box.bottom),
                             confidence: line.confidence, words: run)
         }
+    }
+
+    /// Arayüz sözlüğüyle bölünen şerit (beta.105 testi, #1372 sürüyordu): satırın bütün sözcükleri baştan sona sözlükteki
+    /// etiketlere ("MAP", "BRIEF", "2D VIEW") ya da karakter adı çiftine ("JASON & LUCIA", "JASON LUCIA") bölünebiliyorsa
+    /// her biri ayrı parçadır; en uzun etiket önce denenir. Boşluk ölçüsüne bağlı bölme seçili sekmenin renginde, uçtaki
+    /// simgede ve okuma oynamasında kırılıyor, aynı şerit bir okumada dört, bir okumada iki parça çıkıyordu ("JASON LUCIA
+    /// MAP BRIEF" motora gidip "JASON LUCIA HARİTASI ÖZET" oluyordu). Sözcük yerleri bilinmiyorsa harf sayısıyla
+    /// kestirilir. Yalnız karakter adı çifti taşıyan şeritte (sekme şeridi); bir sözcük bile sözlükte değilse nil (boşluğa
+    /// göre bölünür). Tek satır okunan tuş çubuğuna ("SET DESTINATION EXIT") dokunulmaz. Windows ve Android aynı.
+    static func labelPieces(_ line: TextLine) -> [TextLine]? {
+        guard let box = line.box, TextStyleSampler.isUpper(line.text) else { return nil }
+        let tokens = line.text.split(separator: " ").map(String.init)
+        guard tokens.count >= 2 else { return nil }
+        var ranges: [Range<Int>] = []
+        var i = 0
+        while i < tokens.count {
+            var matched: Int?
+            for count in stride(from: min(labelPieceWords, tokens.count - i), through: 1, by: -1) {
+                let phrase = Array(tokens[i..<(i + count)])
+                let names = phrase.filter { $0 != "&" }
+                if (count >= 2 && names.count == 2 && isNamePair(names.joined(separator: " ")))
+                    || (!phrase.contains("&") && UiCommands.translateLabel(phrase.joined(separator: " ")) != nil) {
+                    matched = count
+                    break
+                }
+            }
+            guard let count = matched else { return nil }
+            ranges.append(i..<(i + count))
+            i += count
+        }
+        guard ranges.count >= 2, ranges.contains(where: { range in
+            isNamePair(tokens[range].filter { $0 != "&" }.joined(separator: " "))
+        }) else { return nil }
+        let measured = (line.words ?? []).count == tokens.count
+        let words = measured ? line.words! : ButtonIcons.estimate(line.text, box)
+        guard words.count == tokens.count else { return nil }
+        return ranges.map { range in
+            let run = Array(words[range])
+            let span = run.dropFirst().reduce(run[0].box) { $0.union($1.box) }
+            return TextLine(run.map(\.text).joined(separator: " "),
+                            box: TextBox(left: span.left, top: box.top, right: span.right, bottom: box.bottom),
+                            confidence: line.confidence, words: measured ? run : nil)
+        }
+    }
+
+    /// Şeritte tek etiket sayılacak en uzun sözcük dizisi.
+    static let labelPieceWords = 3
+
+    /// Parça sözlükteki bir etiket ya da karakter adı çifti ("JASON & LUCIA").
+    static func isLabelPiece(_ text: String) -> Bool {
+        isNamePair(text.split(separator: " ").filter { $0 != "&" }.joined(separator: " "))
+            || UiCommands.translateLabel(text) != nil
     }
 
     /// Satırın yazı boyu: sözcük kutularının ortanca yüksekliği (satır kutusundan büyük değil). Satıra katılan simge
@@ -729,11 +790,18 @@ public enum ScreenTranslation {
     /// tanıma simgeyi satırın ilk sözcüğü okuyor ("KM Collect Chemicals for Kyle"), simge çeviriye giriyor ("KM, Kyle için
     /// kimyasalları topluyor") ve kutu simgenin üstünü örtüyordu. Baştaki bir-iki BÜYÜK harflik sözcük, ardında büyük harfle
     /// başlayan ve küçük harf taşıyan (BÜYÜK HARFLİ olmayan) en az iki sözcük varsa simgedir: atılır, kutu ikinci sözcükten
-    /// başlar. Gerçek kısa sözcükler (`badgeWords`: "A", "I", "OK", "TV", "DJ"…) dokunulmaz. Windows ve Android aynı.
+    /// başlar. Gerçek kısa sözcükler (`badgeWords`: "A", "I", "OK", "TV", "DJ", "Oh", "Mr"…) dokunulmaz. Yazı tanıma "KK"
+    /// simgesinin ikinci harfini küçük okuyunca ("Kh", "Kk", beta.105 testi) iki harflik büyük-küçük baş da simgedir.
+    /// Haritadaki mesafe işaretinin birimi ("0.20 mi" → "mi Vicki wants…", kartın ilk sözcüğü) de aynı yoldan atılır
+    /// (`distanceUnits`). Windows ve Android aynı.
     public static func withoutBadge(_ line: TextLine) -> TextLine {
         let tokens = line.text.split(separator: " ").map(String.init)
-        guard tokens.count >= 3, let head = tokens.first, (1...2).contains(head.count),
-              head.allSatisfy({ $0.isLetter && $0.isUppercase }), !badgeWords.contains(head) else { return line }
+        guard tokens.count >= 3, let head = tokens.first, (1...2).contains(head.count) else { return line }
+        let upper = head.allSatisfy { $0.isLetter && $0.isUppercase }
+        let mixed = head.count == 2 && head.allSatisfy(\.isLetter) && head.first!.isUppercase && head.last!.isLowercase
+        guard distanceUnits.contains(head)
+                || ((upper || mixed) && !badgeWords.contains(head.uppercased(with: Locale(identifier: "en_US_POSIX"))))
+        else { return line }
         let rest = Array(tokens.dropFirst())
         guard rest[0].first?.isUppercase == true, rest.joined().contains(where: \.isLowercase) else { return line }
         var trimmed = line
@@ -749,7 +817,12 @@ public enum ScreenTranslation {
 
     /// Satır başında simge sanılmayacak kısa BÜYÜK harfli sözcükler.
     static let badgeWords: Set<String> = ["A", "I", "O", "OK", "TV", "DJ", "UK", "US", "UN", "LA", "NY", "MR", "DR", "MS",
-                                          "ST", "PS", "AI", "HQ", "ID", "EU", "OF", "IN", "ON", "TO", "MY", "NO", "GO", "UP"]
+                                          "ST", "PS", "AI", "HQ", "ID", "EU", "OF", "IN", "ON", "TO", "MY", "NO", "GO", "UP",
+                                          "OH", "HI", "HA", "AH", "SO", "WE", "HE", "ME", "BY", "DO", "IF", "IS", "IT", "OR",
+                                          "AT", "AN", "AS", "AM", "BE", "YO", "UH", "UM", "OX", "OW"]
+
+    /// Haritadaki mesafe işaretinin satıra katılan birimi ("0.20 mi", "264 ft"): satırın başında simge gibi atılır.
+    static let distanceUnits: Set<String> = ["mi", "ft", "km", "m", "yd"]
 
     /// Satırın başındaki ya da sonundaki kumanda simgesi (kareden tanınmış simge ya da okunmuş tuş adı: "RECENTER L3",
     /// "EXIT (○)") çeviriye girmez; kutu yalnız yazının sözcüklerini kapsar, simge ekranda görünür kalır. Önceden çeviri

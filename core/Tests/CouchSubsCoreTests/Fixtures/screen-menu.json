@@ -1,5 +1,5 @@
 {
-  "about": "Menü şeridi, özel adlar, kenardaki tuş simgesi ve saat (#856, #859, #860). Mac ScreenMenuBarTests.swift, Windows ScreenMenuBarTests.cs ve Android ScreenMenuBarTest.kt aynı dosyayı okur. Kutular [sol, üst, sağ, alt], 16:9 kareye oranla.",
+  "about": "Menü şeridi (boşlukla ya da arayüz sözlüğüyle bölünür), özel adlar, kenardaki tuş simgesi ve saat (#856, #859, #860). Mac ScreenMenuBarTests.swift, Windows ScreenMenuBarTests.cs ve Android ScreenMenuBarTest.kt aynı dosyayı okur. Kutular [sol, üst, sağ, alt], 16:9 kareye oranla.",
   "names": [
     { "text": "JASON & LUCIA", "keep": true },
     { "text": "Bonnie & Clyde", "keep": true },
@@ -26,6 +26,19 @@
     { "text": "ISLAND DREAMS", "clock": false }
   ],
   "menuLines": [
+    {
+      "name": "sekmeler dar boşlukla, '&' okunmamış: arayüz sözlüğüyle bölünür (beta.105, #1372)",
+      "text": "JASON LUCIA MAP BRIEF PROGRESS",
+      "box": [0.4, 0.06, 0.7, 0.09],
+      "words": [
+        { "text": "JASON", "box": [0.4, 0.06, 0.46, 0.09] },
+        { "text": "LUCIA", "box": [0.465, 0.06, 0.52, 0.09] },
+        { "text": "MAP", "box": [0.525, 0.06, 0.56, 0.09] },
+        { "text": "BRIEF", "box": [0.565, 0.06, 0.61, 0.09] },
+        { "text": "PROGRESS", "box": [0.615, 0.06, 0.7, 0.09] }
+      ],
+      "pieces": ["JASON LUCIA", "MAP", "BRIEF", "PROGRESS"]
+    },
     {
       "name": "sekmeler geniş boşlukla: her sekme ayrı",
       "text": "JASON & LUCIA MAP BRIEF PROGRESS",

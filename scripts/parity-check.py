@@ -146,6 +146,25 @@ CAPABILITIES = {
         ("windows", _WIN_TESTS + "ScreenMenuBarTests.cs", r"screen-menu\.json"),
         ("android", _DROID_TESTS + "ScreenMenuBarTest.kt", r"screen-menu\.json"),
     ],
+    # beta.105 testi (#1365): tanınan harita düzeni harita kayınca ya da kararınca düşmez, paneldeki alan panelin kenarında
+    # biter (yer adları listeye karışmaz), sekme şeridi gerekirse arayüz sözlüğüyle bölünür.
+    "Harita düzeni panel durdukça sürer, panel alanı kenarda biter, şerit sözlükle bölünür": [
+        ("mac", _CORE + "ScreenTextDetector.swift", r"private func heldMapPanel\("),
+        ("windows", _WIN + "ScreenTextDetector.cs", r"HeldMapPanel\("),
+        ("android", _DROID + "ScreenTextDetector.kt", r"private fun heldMapPanel\("),
+        ("mac", _CORE + "ScreenTextDetector.swift", r"static func clipped\("),
+        ("windows", _WIN + "ScreenTextDetector.cs", r"internal static CropRegion Clipped\("),
+        ("android", _DROID + "ScreenTextDetector.kt", r"fun clipped\("),
+        ("mac", _CORE + "ScreenTranslation.swift", r"static func labelPieces\("),
+        ("windows", _WIN + "ScreenTranslation.cs", r"LabelPieces\(TextLine line\)"),
+        ("android", _DROID + "ScreenTranslation.kt", r"fun labelPieces\("),
+        ("mac", _CORE_TESTS + "MapLayoutTests.swift", r"func testHeldMapPanelSurvivesMovingOrDarkMap"),
+        ("windows", _WIN_TESTS + "MapLayoutTests.cs", r"void HeldMapPanelSurvivesMovingOrDarkMap"),
+        ("android", _DROID_TESTS + "MapLayoutTest.kt", r"fun heldMapPanelSurvivesMovingOrDarkMap"),
+        ("mac", _CORE_TESTS + "MapLayoutTests.swift", r"func testPanelAreaEndsAtThePanelEdge"),
+        ("windows", _WIN_TESTS + "MapLayoutTests.cs", r"void PanelAreaEndsAtThePanelEdge"),
+        ("android", _DROID_TESTS + "MapLayoutTest.kt", r"fun panelAreaEndsAtThePanelEdge"),
+    ],
     "Ortak deneme dosyası mission-card.json": [
         ("mac", _CORE_TESTS + "MissionCardTests.swift", r"mission-card\.json"),
         ("windows", _WIN_TESTS + "MissionCardTests.cs", r"mission-card\.json"),

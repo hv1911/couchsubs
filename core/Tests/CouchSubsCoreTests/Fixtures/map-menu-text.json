@@ -1,5 +1,5 @@
 {
-  "about": "Harita ekranının görev listesi ve görev kartındaki yazılar (#1365). Mac MapMenuTextTests.swift, Windows MapMenuTextTests.cs ve Android MapMenuTextTest.kt aynı dosyayı okur. 'labels': UiCommands.translateLabel (arayüz etiketi, biçim korunur). 'missionTitles': UiCommands.missionTitle (motor başlığı olduğu gibi döndürünce: fiil çevrilir, özel ad kalır; null: kalıba girmez). 'badges': ScreenTranslation.withoutBadge; satırın başındaki görev simgesi ('KM') atılır, kutu [sol, üst, sağ, alt] ikinci sözcükten başlar ('left': beklenen sol kenar; sözcük yerleri bilinmiyor, harf sayısıyla kestirilir). 'unsure': ScreenTextNoise.isUnsure; menüde güveni en çok 0,5 olan ve arayüz sözlüğünde olmayan satır çeviriye gitmez.",
+  "about": "Harita ekranının görev listesi ve görev kartındaki yazılar (#1365). Mac MapMenuTextTests.swift, Windows MapMenuTextTests.cs ve Android MapMenuTextTest.kt aynı dosyayı okur. 'labels': UiCommands.translateLabel (arayüz etiketi, biçim korunur). 'missionTitles': UiCommands.missionTitle (motor başlığı olduğu gibi döndürünce: fiil çevrilir, özel ad kalır; null: kalıba girmez). 'badges': ScreenTranslation.withoutBadge; satırın başındaki görev simgesi ('KM', yanlış okunan 'Kh') ve haritanın mesafe birimi ('mi') atılır, kutu [sol, üst, sağ, alt] ikinci sözcükten başlar ('left': beklenen sol kenar; sözcük yerleri bilinmiyor, harf sayısıyla kestirilir). 'unsure': ScreenTextNoise.isUnsure; menüde güveni en çok 0,5 olan ve arayüz sözlüğünde olmayan satır çeviriye gitmez.",
   "labels": [
     { "text": "GOAL", "expected": "HEDEF" },
     { "text": "Goal", "expected": "Hedef" },
@@ -23,6 +23,11 @@
     { "text": "KM Collect Chemicals for Kyle", "box": [0.10, 0.30, 0.38, 0.34], "expected": "Collect Chemicals for Kyle", "left": 0.129 },
     { "text": "W Check out the Mud Club", "box": [0.10, 0.36, 0.34, 0.40], "expected": "Check out the Mud Club", "left": 0.12 },
     { "text": "KK Search for the Skunk Ape", "box": [0.10, 0.24, 0.37, 0.28], "expected": "Search for the Skunk Ape", "left": 0.13 },
+    { "text": "Kh Search for the Skunk Ape", "box": [0.10, 0.24, 0.37, 0.28], "expected": "Search for the Skunk Ape", "left": 0.13 },
+    { "text": "BV Meet Bret", "box": [0.10, 0.44, 0.22, 0.48], "expected": "Meet Bret", "left": 0.13 },
+    { "text": "mi Vicki wants to rob her boss", "box": [0.50, 0.50, 0.80, 0.53], "expected": "Vicki wants to rob her boss", "left": 0.53 },
+    { "text": "Oh My God Again", "box": [0.10, 0.30, 0.25, 0.34], "expected": "Oh My God Again", "left": 0.10 },
+    { "text": "Mr Smith Goes Home", "box": [0.10, 0.30, 0.28, 0.34], "expected": "Mr Smith Goes Home", "left": 0.10 },
     { "text": "A Night Out", "box": [0.10, 0.30, 0.22, 0.34], "expected": "A Night Out", "left": 0.10 },
     { "text": "TV Remote Control", "box": [0.10, 0.30, 0.27, 0.34], "expected": "TV Remote Control", "left": 0.10 },
     { "text": "KM COLLECT CHEMICALS", "box": [0.10, 0.30, 0.30, 0.34], "expected": "KM COLLECT CHEMICALS", "left": 0.10 },

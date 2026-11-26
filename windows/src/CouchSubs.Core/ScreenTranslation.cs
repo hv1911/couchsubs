@@ -598,6 +598,16 @@ public static class ScreenTranslation
         if (line.Box is not { } box || !TextStyleSampler.IsUpper(line.Text) || WordCount(line.Text) < 2)
             return [line];
         var limit = TextHeight(line) * MenuGap / Math.Max(0.1, aspect);
+        var split = GapPieces(line, box, limit, frame);
+        // Boşluğa göre bölme şeridi sözlükteki etiketlere ayıramadıysa (beta.105: "JASON LUCIA MAP BRIEF" + "PROGRESS")
+        // sözlükle bölünür.
+        if (!split.All(piece => IsLabelPiece(piece.Text)) && LabelPieces(line) is { } labelled) return labelled;
+        return split;
+    }
+
+    /// <summary>Boşluğa göre bölme: karedeki yazı sütunları (InkPieces), kare yoksa sözcük yerleri.</summary>
+    private static IReadOnlyList<TextLine> GapPieces(TextLine line, TextBox box, double limit, Frame? frame)
+    {
         if (frame is not null) return InkPieces(line, frame, limit);
         if (line.Words is not { Count: >= 2 } words) return [line];
         var runs = new List<List<TextWord>> { new() { words[0] } };
@@ -614,6 +624,62 @@ public static class ScreenTranslation
                                 line.Confidence, run);
         })];
     }
+
+    /// <summary>
+    /// Arayüz sözlüğüyle bölünen şerit (beta.105 testi, #1372 sürüyordu): satırın bütün sözcükleri baştan sona sözlükteki
+    /// etiketlere ("MAP", "BRIEF", "2D VIEW") ya da karakter adı çiftine ("JASON &amp; LUCIA", "JASON LUCIA") bölünebiliyorsa
+    /// her biri ayrı parçadır; en uzun etiket önce denenir. Boşluk ölçüsüne bağlı bölme seçili sekmenin renginde, uçtaki
+    /// simgede ve okuma oynamasında kırılıyor, aynı şerit bir okumada dört, bir okumada iki parça çıkıyordu ("JASON LUCIA
+    /// MAP BRIEF" motora gidip "JASON LUCIA HARİTASI ÖZET" oluyordu). Sözcük yerleri bilinmiyorsa harf sayısıyla
+    /// kestirilir. Yalnız karakter adı çifti taşıyan şeritte (sekme şeridi); bir sözcük bile sözlükte değilse null (boşluğa
+    /// göre bölünür). Tek satır okunan tuş çubuğuna ("SET DESTINATION EXIT") dokunulmaz. Mac ve Android aynı.
+    /// </summary>
+    internal static IReadOnlyList<TextLine>? LabelPieces(TextLine line)
+    {
+        if (line.Box is not { } box || !TextStyleSampler.IsUpper(line.Text)) return null;
+        var tokens = line.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length < 2) return null;
+        var ranges = new List<(int Start, int Count)>();
+        var i = 0;
+        while (i < tokens.Length)
+        {
+            int? matched = null;
+            for (var count = Math.Min(LabelPieceWords, tokens.Length - i); count >= 1; count--)
+            {
+                var phrase = tokens[i..(i + count)];
+                var names = phrase.Where(token => token != "&").ToArray();
+                if ((count >= 2 && names.Length == 2 && IsNamePair(string.Join(' ', names)))
+                    || (!phrase.Contains("&") && UiCommands.TranslateLabel(string.Join(' ', phrase)) is not null))
+                {
+                    matched = count;
+                    break;
+                }
+            }
+            if (matched is not { } found) return null;
+            ranges.Add((i, found));
+            i += found;
+        }
+        if (ranges.Count < 2 || !ranges.Any(range =>
+                IsNamePair(string.Join(' ', tokens.Skip(range.Start).Take(range.Count).Where(token => token != "&"))))) return null;
+        var measured = line.Words is { } known && known.Count == tokens.Length;
+        var words = measured ? line.Words! : ButtonIcons.Estimate(line.Text, box);
+        if (words.Count != tokens.Length) return null;
+        return [.. ranges.Select(range =>
+        {
+            var run = words.Skip(range.Start).Take(range.Count).ToList();
+            var span = run.Select(word => word.Box).Aggregate((a, b) => a.Union(b));
+            return new TextLine(string.Join(' ', run.Select(word => word.Text)), new TextBox(span.Left, box.Top, span.Right, box.Bottom),
+                                line.Confidence, measured ? run : null);
+        })];
+    }
+
+    /// <summary>Şeritte tek etiket sayılacak en uzun sözcük dizisi.</summary>
+    internal const int LabelPieceWords = 3;
+
+    /// <summary>Parça sözlükteki bir etiket ya da karakter adı çifti ("JASON &amp; LUCIA").</summary>
+    internal static bool IsLabelPiece(string text) =>
+        IsNamePair(string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(token => token != "&")))
+        || UiCommands.TranslateLabel(text) is not null;
 
     /// <summary>
     /// Satırın yazı boyu: sözcük kutularının ortanca yüksekliği (satır kutusundan büyük değil). Satıra katılan simge
@@ -815,14 +881,21 @@ public static class ScreenTranslation
     /// tanıma simgeyi satırın ilk sözcüğü okuyor ("KM Collect Chemicals for Kyle"), simge çeviriye giriyor ("KM, Kyle için
     /// kimyasalları topluyor") ve kutu simgenin üstünü örtüyordu. Baştaki bir-iki BÜYÜK harflik sözcük, ardında büyük harfle
     /// başlayan ve küçük harf taşıyan (BÜYÜK HARFLİ olmayan) en az iki sözcük varsa simgedir: atılır, kutu ikinci sözcükten
-    /// başlar. Gerçek kısa sözcükler (<see cref="BadgeWords"/>: "A", "I", "OK", "TV", "DJ"…) dokunulmaz. Mac ve Android aynı.
+    /// başlar. Gerçek kısa sözcükler (<see cref="BadgeWords"/>: "A", "I", "OK", "TV", "DJ", "Oh", "Mr"…) dokunulmaz. Yazı tanıma
+    /// "KK" simgesinin ikinci harfini küçük okuyunca ("Kh", "Kk", beta.105 testi) iki harflik büyük-küçük baş da simgedir.
+    /// Haritadaki mesafe işaretinin birimi ("0.20 mi" → "mi Vicki wants…", kartın ilk sözcüğü) de aynı yoldan atılır
+    /// (<see cref="DistanceUnits"/>). Mac ve Android aynı.
     /// </summary>
     public static TextLine WithoutBadge(TextLine line)
     {
         var tokens = line.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length < 3) return line;
         var head = tokens[0];
-        if (head.Length is < 1 or > 2 || !head.All(c => char.IsLetter(c) && char.IsUpper(c)) || BadgeWords.Contains(head)) return line;
+        if (head.Length is < 1 or > 2) return line;
+        var upper = head.All(c => char.IsLetter(c) && char.IsUpper(c));
+        // "Kh", "Kk": yazı tanıma "KK" simgesinin ikinci harfini küçük okuyor (beta.105 testi).
+        var mixed = head.Length == 2 && head.All(char.IsLetter) && char.IsUpper(head[0]) && char.IsLower(head[1]);
+        if (!DistanceUnits.Contains(head) && (!(upper || mixed) || BadgeWords.Contains(head.ToUpperInvariant()))) return line;
         var rest = tokens[1..];
         if (!char.IsUpper(rest[0][0]) || !string.Concat(rest).Any(char.IsLower)) return line;
         var trimmed = line with { Text = string.Join(' ', rest) };
@@ -842,7 +915,12 @@ public static class ScreenTranslation
     {
         "A", "I", "O", "OK", "TV", "DJ", "UK", "US", "UN", "LA", "NY", "MR", "DR", "MS",
         "ST", "PS", "AI", "HQ", "ID", "EU", "OF", "IN", "ON", "TO", "MY", "NO", "GO", "UP",
+        "OH", "HI", "HA", "AH", "SO", "WE", "HE", "ME", "BY", "DO", "IF", "IS", "IT", "OR",
+        "AT", "AN", "AS", "AM", "BE", "YO", "UH", "UM", "OX", "OW",
     };
+
+    /// <summary>Haritadaki mesafe işaretinin satıra katılan birimi ("0.20 mi", "264 ft"): satırın başında simge gibi atılır.</summary>
+    internal static readonly HashSet<string> DistanceUnits = new(StringComparer.Ordinal) { "mi", "ft", "km", "m", "yd" };
 
     /// <summary>
     /// Satırın başındaki ya da sonundaki kumanda simgesi (kareden tanınmış simge ya da okunmuş tuş adı: "RECENTER L3",

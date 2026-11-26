@@ -4,6 +4,7 @@ package com.couchsubs.mobile.core
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -161,6 +162,42 @@ class MapLayoutTest {
         assertNull("panel tam boy değil", panel({ column, row -> if (column < 9 && row < 12) 45.0 else 160.0 }, list))
         val right = (1..6).flatMap { row -> (25..30).map { row * 32 + it } }.toSet()
         assertEquals(false, panel({ column, _ -> if (column >= 23) 45.0 else 160.0 }, right)?.left)
+    }
+
+    /**
+     * Tanınmış düzen panel yerinde durdukça sürer (beta.105 testi): harita kayarken (sabit değil), kararınca (yanı koyu) ya
+     * da panelin genişliği bir karo oynayınca bulunur; panel kalkınca, liste gidince ya da öbür yanda aranınca bulunmaz.
+     */
+    @Test
+    fun heldMapPanelSurvivesMovingOrDarkMap() {
+        fun held(tone: (Int, Int) -> Double, text: Set<Int>, steady: Boolean, left: Boolean = true, width: Int = 9) =
+            ScreenTextDetector.mapPanel({ it in text }, ScreenTextDetector.MapPanel(left, width)) { index ->
+                tone(index % 32, index / 32) to steady
+            }
+        val list = (1..6).flatMap { row -> (1..6).map { row * 32 + it } }.toSet()
+        assertNotNull("harita kayıyor", held({ column, _ -> if (column < 9) 45.0 else 160.0 }, list, steady = false))
+        assertNotNull("harita karardı", held({ column, _ -> if (column < 9) 45.0 else 60.0 }, list, steady = false))
+        assertNotNull("panel bir karo geniş", held({ column, _ -> if (column < 10) 45.0 else 160.0 }, list, steady = true))
+        assertNull("panel kalktı", held({ _, _ -> 160.0 }, list, steady = true))
+        assertNull("liste yok", held({ column, _ -> if (column < 9) 45.0 else 160.0 }, emptySet(), steady = true))
+        assertNull("öbür yan", held({ column, _ -> if (column < 9) 45.0 else 160.0 }, list, steady = true, left = false))
+    }
+
+    /**
+     * Harita düzeninde panelin alanı panelin kenarında biter (haritanın yer adları okunmaz); paneldeki karoları azınlıkta
+     * olan alan (görev kartı) olduğu gibi kalır; sağdaki panelde sol kenar kırpılır.
+     */
+    @Test
+    fun panelAreaEndsAtThePanelEdge() {
+        val list = (2..10).flatMap { row -> (1..7).map { row * 32 + it } } + listOf(2 * 32 + 10, 3 * 32 + 11)
+        val clipped = ScreenTextDetector.clipped(CropRegion(0.1, 0.6, 0.0, 0.375), list, ScreenTextDetector.MapPanel(true, 9))
+        assertEquals(9.25 / 32, clipped.right, 1e-9)
+        assertEquals(0.0, clipped.left, 1e-9)
+        val card = (5..8).flatMap { row -> (15..22).map { row * 32 + it } }
+        assertEquals(0.75, ScreenTextDetector.clipped(CropRegion(0.2, 0.5, 0.44, 0.75), card, ScreenTextDetector.MapPanel(true, 9)).right, 1e-9)
+        val mirrored = (2..10).flatMap { row -> (24..30).map { row * 32 + it } }
+        assertEquals(1 - 9.25 / 32,
+            ScreenTextDetector.clipped(CropRegion(0.1, 0.6, 0.6, 1.0), mirrored, ScreenTextDetector.MapPanel(false, 9)).left, 1e-9)
     }
 
     private companion object {

@@ -116,17 +116,42 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
         /** Panelin karo satırlarının en az bu kadarı panel (koyu ya da yazı): panel tam boy. */
         const val MAP_ROWS = 0.9
 
+        /** Tanınmış harita düzeni en az bu kadar süre kanıtsız da sürer (seçim çubuğunun bir karelik parlaması). */
+        const val MAP_HOLD_MS = 700L
+        /** Alanın panele ait sayılması için yazı karolarının paneldeki en az payı ([clipped]). */
+        const val MAP_CLIP_SHARE = 0.6
+        /** Panel kenarının ötesinde okunan pay (çeyrek karo). */
+        const val MAP_CLIP_MARGIN = 0.25 / COLUMNS
+
+        /**
+         * Harita düzeninde panelin içindeki alan (yazı karolarının en az [MAP_CLIP_SHARE]'i panelde) panelin kenarında biter
+         * (beta.105 testi, #1365): alan bir karo taşıp haritanın yazılarını da okuyordu; yer adları listeye ("STORY Draper
+         * Islan Rob Vicki's Boss…", "OPTIONAL Port G…") karışıp çeviriye giriyordu. Kenarda kesilen harita yazısı menüde
+         * zaten atılır (cutAtAreaEdge). Panelin dışındaki alanlara (görev kartı, tuş çubuğu) dokunulmaz. Mac ve Windows aynı.
+         */
+        fun clipped(region: CropRegion, tiles: Collection<Int>, panel: MapPanel): CropRegion {
+            if (tiles.isEmpty()) return region
+            val inside = tiles.count { if (panel.left) it % COLUMNS < panel.width else it % COLUMNS >= COLUMNS - panel.width }
+            if (inside < MAP_CLIP_SHARE * tiles.size) return region
+            val edge = panel.width.toDouble() / COLUMNS
+            return if (panel.left) region.copy(right = minOf(region.right, edge + MAP_CLIP_MARGIN))
+            else region.copy(left = maxOf(region.left, 1 - edge - MAP_CLIP_MARGIN))
+        }
+
         /**
          * Harita düzeninin paneli; yoksa null. [inside]: yazı karosu (aday ya da bileşen). Menüde aday kuralı genişleyince
          * (kontur yazı) haritanın yazıları da aday olur, liste bileşeni onlarla birleşip büyüyebilir; düzen bileşenlere
          * değil karolara bakar, menü gidip gelmez. [tile]: karonun ortalama parlaklığı ve yerinde sabit olup olmadığı
-         * (testler sentetik karolarla çağırır).
+         * (testler sentetik karolarla çağırır). [held]: önceden tanınmış panel; verilirse yalnız onun yanında ve ±1 karo
+         * genişlikte koyu tam boy panel ve listesi aranır, haritanın açıklığı ve sabitliği aranmaz ([heldMapPanel]).
          */
-        fun mapPanel(inside: (Int) -> Boolean, tile: (Int) -> Pair<Double, Boolean>): MapPanel? {
-            for (left in listOf(true, false)) {
+        fun mapPanel(inside: (Int) -> Boolean, held: MapPanel? = null, tile: (Int) -> Pair<Double, Boolean>): MapPanel? {
+            for (left in if (held != null) listOf(held.left) else listOf(true, false)) {
                 // k: panelin dış kenarından içeri doğru sütun sırası.
                 fun column(k: Int) = if (left) k else COLUMNS - 1 - k
-                for (width in MAP_PANEL_COLUMNS) {
+                val widths = if (held != null) maxOf(MAP_PANEL_COLUMNS.first, held.width - 1)..minOf(MAP_PANEL_COLUMNS.last, held.width + 1)
+                    else MAP_PANEL_COLUMNS
+                for (width in widths) {
                     val ground = mutableListOf<Double>()
                     var panelRows = 0
                     for (row in 0 until ROWS) {
@@ -153,7 +178,7 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
                         if (inside(a) || tile(a).first < MAP_PANEL_DARK) edgeIn++
                         if (inside(b) || tile(b).first >= light) edgeOut++
                     }
-                    if (edgeIn < 0.75 * ROWS || edgeOut < 0.75 * ROWS) continue
+                    if (edgeIn < 0.75 * ROWS || (held == null && edgeOut < 0.75 * ROWS)) continue
                     // Harita: panel dışındaki yazısız karoların çoğu açık ve yerinde sabit (oyun sahnesinde kamera oynar).
                     var mapTiles = 0
                     var lit = 0
@@ -166,7 +191,7 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
                         if (mean >= light) lit++
                         if (still) steady++
                     }
-                    if (mapTiles == 0 || lit < MAP_SHARE * mapTiles || steady < MAP_SHARE * mapTiles) continue
+                    if (held == null && (mapTiles == 0 || lit < MAP_SHARE * mapTiles || steady < MAP_SHARE * mapTiles)) continue
                     // Panelde liste: en az üç karo satırında panelin dış yarısında yazı.
                     val list = (0 until ROWS).count { row -> (0 until maxOf(1, width / 2)).any { inside(row * COLUMNS + column(it)) } }
                     if (list >= 3) return MapPanel(left, width)
@@ -233,6 +258,9 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
     private var mapPanelSeen: String? = null
     /** Bu örnekte bulunan harita düzeni ([isMenu]); menü onunla sürer ([MENU_LIFE_MS] dolmaz). */
     private var mapPanelNow: MapPanel? = null
+    /** Tanınan harita düzeninin paneli ve son kanıtın anı ([MAP_HOLD_MS]). */
+    private var mapHeld: MapPanel? = null
+    private var mapHeldAt = 0L
 
     /** Son örnekte harita düzeni (#1365) tanındı. */
     val inMapLayout: Boolean
@@ -251,7 +279,7 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
     private var menuEnteredAt = 0L
     private var menuFloor: Long? = null
 
-    private fun Auto.area() = ExtraArea(id, NAME, region, auto = true, menu = menu)
+    private fun Auto.area() = ExtraArea(id, NAME, mapHeld?.let { clipped(region, tiles, it) } ?: region, auto = true, menu = menu)
 
     /**
      * Örnek alma zamanı geldiyse (son örnekten 100 ms geçti ve önceki örnek bitti) true; çağıran örneği alıp
@@ -394,7 +422,10 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
         // Süresi dolan menünün yazıları yeniden menü sayılmaz; menü ancak sonradan beliren yazılarla açılır.
         val floor = menuFloor
         mapPanelNow = null
-        if (spoken) notePanel(null, 0.0)
+        if (spoken) {
+            mapHeld = null
+            notePanel(null, 0.0)
+        }
         menu = !spoken && isMenu(if (floor == null) evidence else evidence.filter { members -> members.maxOf { tiles[it].stableSince } > floor },
             sample, candidate, now)
         if (menu && !wasMenu) {
@@ -558,6 +589,7 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
         busy = false
         mapPanelSeen = null
         mapPanelNow = null
+        mapHeld = null
         notes.clear()
     }
 
@@ -578,19 +610,50 @@ class ScreenTextDetector(private val clock: () -> Long = monotonicClock) {
         }
         val calmShare = if (outside == 0) 0.0 else calm.toDouble() / outside
         // Harita düzeni: keskin harita sakin zemin ve üç bileşen şartını karşılamıyor; düzen tanınınca eşikler gevşer.
-        val panel = if (components.size >= MAP_COMPONENTS && calmShare >= MAP_QUIET_SHARE && sample.mean.size == TILES)
-            mapPanel({ candidate[it] || inside[it] }) { index ->
-                sample.mean[index].toDouble() to (now - tiles[index].stableSince >= WORLD_STABLE_MS)
-            } else null
+        // Tanınan düzen panel yerinde durdukça sürer ([heldMapPanel]).
+        val text: (Int) -> Boolean = { candidate[it] || inside[it] }
+        val tile: (Int) -> Pair<Double, Boolean> = { index ->
+            sample.mean[index].toDouble() to (now - tiles[index].stableSince >= WORLD_STABLE_MS)
+        }
+        val found = if (components.size >= MAP_COMPONENTS && calmShare >= MAP_QUIET_SHARE && sample.mean.size == TILES)
+            mapPanel(text, tile = tile) else null
+        val (panel, held) = heldMapPanel(found, text, if (sample.mean.size == TILES) tile else null, now)
         notePanel(panel, calmShare)
         val need = if (panel == null) MENU_COMPONENTS else MAP_COMPONENTS
         if (components.size < need) return false
         val settled = components.map { members -> members.maxOf { tiles[it].stableSince } }.sorted()
         val together = (0..settled.size - need).any { settled[it + need - 1] - settled[it] <= STABLE_MS }
         if (!together) return false
-        if (outside == 0 || calm < (if (panel == null) MENU_CALM_SHARE else MAP_QUIET_SHARE) * outside) return false
+        if (!held && (outside == 0 || calm < (if (panel == null) MENU_CALM_SHARE else MAP_QUIET_SHARE) * outside)) return false
         mapPanelNow = panel
         return true
+    }
+
+    /**
+     * Tanınmış harita düzeni panel yerinde durdukça sürer (beta.105 testi, #1365): listede seçim değişince oyun haritayı
+     * seçilen göreve kaydırıyor, kimi zaman karartıp yakınlaştırıyor; harita "açık ve yerinde sabit" şartını kaybedince
+     * düzen düşüyor (5 dakikada 12 "bulundu", 11 "bitti"), düştüğü her anda hazır Help/Messages alanları aynı listeyi ve
+     * kartı yeniden okuyup haritanın üstüne ikiz kutular çiziyor, simge ve bozuk okuma süzgeçleri kalkıyordu. Tanındıktan
+     * sonra aynı yandaki koyu panel (genişliği ±1 karo) ve listesi yerinde durdukça harita ve sakin zemin aranmaz
+     * ([mapPanel] held); panel bulunamazsa düzen [MAP_HOLD_MS] daha sürer, sonra biter. Dönen ikinci değer: düzen yalnız
+     * panelden sürüyor (sakin zemin şartı aranmaz). Mac ve Windows aynı.
+     */
+    private fun heldMapPanel(found: MapPanel?, text: (Int) -> Boolean, tile: ((Int) -> Pair<Double, Boolean>)?,
+                             now: Long): Pair<MapPanel?, Boolean> {
+        if (found != null) {
+            mapHeld = found
+            mapHeldAt = now
+            return found to false
+        }
+        val last = mapHeld ?: return null to false
+        // Panelin yeri ve genişliği tanındığı gibi kalır (günlükte genişlik değişti diye düzen yeniden "bulunmaz").
+        if (tile != null && mapPanel(text, last, tile) != null) {
+            mapHeldAt = now
+            return last to true
+        }
+        if (now - mapHeldAt <= MAP_HOLD_MS) return last to true
+        mapHeld = null
+        return null to false
     }
 
     /** Harita düzeninin bulunuşu ve bitişi günlüğe bir kez yazılır ([onLog]; #1365 tanısı). */

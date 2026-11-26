@@ -178,4 +178,40 @@ public class MapLayoutTests
         var right = Enumerable.Range(1, 6).SelectMany(row => Enumerable.Range(25, 6).Select(column => row * 32 + column)).ToHashSet();
         Assert.Equal(false, Find((column, _) => column >= 23 ? 45 : 160, right)?.Left);
     }
+
+    /// <summary>
+    /// Tanınmış düzen panel yerinde durdukça sürer (beta.105 testi): harita kayarken (sabit değil), kararınca (yanı koyu) ya
+    /// da panelin genişliği bir karo oynayınca bulunur; panel kalkınca, liste gidince ya da öbür yanda aranınca bulunmaz.
+    /// </summary>
+    [Fact]
+    public void HeldMapPanelSurvivesMovingOrDarkMap()
+    {
+        static (bool Left, int Width)? Held(Func<int, int, double> tone, HashSet<int> text, bool steady, bool left = true, int width = 9) =>
+            ScreenTextDetector.MapPanel(text.Contains, index => (tone(index % 32, index / 32), steady), (left, width));
+        var list = Enumerable.Range(1, 6).SelectMany(row => Enumerable.Range(1, 6).Select(column => row * 32 + column)).ToHashSet();
+        Assert.NotNull(Held((column, _) => column < 9 ? 45 : 160, list, steady: false)); // harita kayıyor
+        Assert.NotNull(Held((column, _) => column < 9 ? 45 : 60, list, steady: false)); // harita karardı
+        Assert.NotNull(Held((column, _) => column < 10 ? 45 : 160, list, steady: true)); // panel bir karo geniş
+        Assert.Null(Held((_, _) => 160, list, steady: true)); // panel kalktı
+        Assert.Null(Held((column, _) => column < 9 ? 45 : 160, [], steady: true)); // liste yok
+        Assert.Null(Held((column, _) => column < 9 ? 45 : 160, list, steady: true, left: false)); // öbür yan
+    }
+
+    /// <summary>
+    /// Harita düzeninde panelin alanı panelin kenarında biter (haritanın yer adları okunmaz); paneldeki karoları azınlıkta
+    /// olan alan (görev kartı) olduğu gibi kalır; sağdaki panelde sol kenar kırpılır.
+    /// </summary>
+    [Fact]
+    public void PanelAreaEndsAtThePanelEdge()
+    {
+        var list = Enumerable.Range(2, 9).SelectMany(row => Enumerable.Range(1, 7).Select(column => row * 32 + column))
+            .Concat([2 * 32 + 10, 3 * 32 + 11]).ToList();
+        var clipped = ScreenTextDetector.Clipped(new CropRegion(0.1, 0.6, 0, 0.375), list, (true, 9));
+        Assert.Equal(9.25 / 32, clipped.Right, 9);
+        Assert.Equal(0, clipped.Left, 9);
+        var card = Enumerable.Range(5, 4).SelectMany(row => Enumerable.Range(15, 8).Select(column => row * 32 + column)).ToList();
+        Assert.Equal(0.75, ScreenTextDetector.Clipped(new CropRegion(0.2, 0.5, 0.44, 0.75), card, (true, 9)).Right, 9);
+        var mirrored = Enumerable.Range(2, 9).SelectMany(row => Enumerable.Range(24, 7).Select(column => row * 32 + column)).ToList();
+        Assert.Equal(1 - 9.25 / 32, ScreenTextDetector.Clipped(new CropRegion(0.1, 0.6, 0.6, 1), mirrored, (false, 9)).Left, 9);
+    }
 }

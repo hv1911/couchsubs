@@ -174,4 +174,39 @@ final class MapLayoutTests: XCTestCase {
         let right = Set((1...6).flatMap { row in (25...30).map { row * 32 + $0 } })
         XCTAssertEqual(panel({ column, _ in column >= 23 ? 45 : 160 }, text: right)?.left, false)
     }
+
+    /// Tanınmış düzen panel yerinde durdukça sürer (beta.105 testi): harita kayarken (sabit değil), kararınca (yanı koyu) ya
+    /// da panelin genişliği bir karo oynayınca bulunur; panel kalkınca, liste gidince ya da öbür yanda aranınca bulunmaz.
+    func testHeldMapPanelSurvivesMovingOrDarkMap() {
+        func held(_ tone: (Int, Int) -> Double, text: Set<Int>, steady: Bool, left: Bool = true,
+                  width: Int = 9) -> (left: Bool, width: Int)? {
+            ScreenTextDetector.mapPanel(text: { text.contains($0) }, tile: { index in (tone(index % 32, index / 32), steady) },
+                                        held: (left: left, width: width))
+        }
+        let list = Set((1...6).flatMap { row in (1...6).map { row * 32 + $0 } })
+        XCTAssertNotNil(held({ column, _ in column < 9 ? 45 : 160 }, text: list, steady: false), "harita kayıyor")
+        XCTAssertNotNil(held({ column, _ in column < 9 ? 45 : 60 }, text: list, steady: false), "harita karardı")
+        XCTAssertNotNil(held({ column, _ in column < 10 ? 45 : 160 }, text: list, steady: true), "panel bir karo geniş")
+        XCTAssertNil(held({ _, _ in 160 }, text: list, steady: true), "panel kalktı")
+        XCTAssertNil(held({ column, _ in column < 9 ? 45 : 160 }, text: [], steady: true), "liste yok")
+        XCTAssertNil(held({ column, _ in column < 9 ? 45 : 160 }, text: list, steady: true, left: false), "öbür yan")
+    }
+
+    /// Harita düzeninde panelin alanı panelin kenarında biter (haritanın yer adları okunmaz); paneldeki karoları azınlıkta
+    /// olan alan (görev kartı) olduğu gibi kalır; sağdaki panelde sol kenar kırpılır.
+    func testPanelAreaEndsAtThePanelEdge() {
+        let list = (2...10).flatMap { row in (1...7).map { row * 32 + $0 } } + [2 * 32 + 10, 3 * 32 + 11]
+        let clipped = ScreenTextDetector.clipped(CropRegion(top: 0.1, bottom: 0.6, left: 0, right: 0.375), tiles: list,
+                                                 to: (left: true, width: 9))
+        XCTAssertEqual(clipped.right, 9.25 / 32, accuracy: 1e-9)
+        XCTAssertEqual(clipped.left, 0, accuracy: 1e-9)
+        let card = (5...8).flatMap { row in (15...22).map { row * 32 + $0 } }
+        let kept = ScreenTextDetector.clipped(CropRegion(top: 0.2, bottom: 0.5, left: 0.44, right: 0.75), tiles: card,
+                                              to: (left: true, width: 9))
+        XCTAssertEqual(kept.right, 0.75, accuracy: 1e-9)
+        let mirrored = (2...10).flatMap { row in (24...30).map { row * 32 + $0 } }
+        let right = ScreenTextDetector.clipped(CropRegion(top: 0.1, bottom: 0.6, left: 0.6, right: 1), tiles: mirrored,
+                                               to: (left: false, width: 9))
+        XCTAssertEqual(right.left, 1 - 9.25 / 32, accuracy: 1e-9)
+    }
 }

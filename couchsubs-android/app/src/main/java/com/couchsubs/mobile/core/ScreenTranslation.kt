@@ -558,6 +558,15 @@ object ScreenTranslation {
         if (!TextStyleSampler.isUpper(line.text) ||
             line.text.split(Regex("\\s+")).count { it.isNotEmpty() } < 2) return listOf(line)
         val limit = textHeight(line) * MENU_GAP / maxOf(0.1, aspect)
+        val pieces = gapPieces(line, box, limit, frame)
+        // Boşluğa göre bölme şeridi sözlükteki etiketlere ayıramadıysa (beta.105: "JASON LUCIA MAP BRIEF" + "PROGRESS")
+        // sözlükle bölünür.
+        if (!pieces.all { isLabelPiece(it.text) }) labelPieces(line)?.let { return it }
+        return pieces
+    }
+
+    /** Boşluğa göre bölme: karedeki yazı sütunları ([inkPieces]), kare yoksa sözcük yerleri. */
+    private fun gapPieces(line: TextLine, box: TextBox, limit: Double, frame: GrayFrame?): List<TextLine> {
         if (frame != null) return inkPieces(line, frame, limit)
         val words = line.words
         if (words == null || words.size < 2) return listOf(line)
@@ -572,6 +581,56 @@ object ScreenTranslation {
             TextLine(run.joinToString(" ") { it.text }, TextBox(span.left, box.top, span.right, box.bottom), run, confidence = line.confidence)
         }
     }
+
+    /**
+     * Arayüz sözlüğüyle bölünen şerit (beta.105 testi, #1372 sürüyordu): satırın bütün sözcükleri baştan sona sözlükteki
+     * etiketlere ("MAP", "BRIEF", "2D VIEW") ya da karakter adı çiftine ("JASON & LUCIA", "JASON LUCIA") bölünebiliyorsa
+     * her biri ayrı parçadır; en uzun etiket önce denenir. Boşluk ölçüsüne bağlı bölme seçili sekmenin renginde, uçtaki
+     * simgede ve okuma oynamasında kırılıyor, aynı şerit bir okumada dört, bir okumada iki parça çıkıyordu ("JASON LUCIA
+     * MAP BRIEF" motora gidip "JASON LUCIA HARİTASI ÖZET" oluyordu). Sözcük yerleri bilinmiyorsa harf sayısıyla
+     * kestirilir. Yalnız karakter adı çifti taşıyan şeritte (sekme şeridi); bir sözcük bile sözlükte değilse null (boşluğa
+     * göre bölünür). Tek satır okunan tuş çubuğuna ("SET DESTINATION EXIT") dokunulmaz. Mac ve Windows aynı.
+     */
+    internal fun labelPieces(line: TextLine): List<TextLine>? {
+        val box = line.box ?: return null
+        if (!TextStyleSampler.isUpper(line.text)) return null
+        val tokens = line.text.split(" ").filter { it.isNotEmpty() }
+        if (tokens.size < 2) return null
+        val ranges = mutableListOf<IntRange>()
+        var i = 0
+        while (i < tokens.size) {
+            var matched: Int? = null
+            for (count in minOf(LABEL_PIECE_WORDS, tokens.size - i) downTo 1) {
+                val phrase = tokens.subList(i, i + count)
+                val names = phrase.filter { it != "&" }
+                if ((count >= 2 && names.size == 2 && isNamePair(names.joinToString(" "))) ||
+                    ("&" !in phrase && UiCommands.translateLabel(phrase.joinToString(" ")) != null)) {
+                    matched = count
+                    break
+                }
+            }
+            val count = matched ?: return null
+            ranges.add(i until i + count)
+            i += count
+        }
+        if (ranges.size < 2 || ranges.none { range -> isNamePair(tokens.slice(range).filter { it != "&" }.joinToString(" ")) }) return null
+        val measured = line.words?.size == tokens.size
+        val words = if (measured) line.words!! else ButtonIcons.estimate(line.text, box)
+        if (words.size != tokens.size) return null
+        return ranges.map { range ->
+            val run = words.slice(range)
+            val span = run.drop(1).fold(run[0].box) { all, word -> all.union(word.box) }
+            TextLine(run.joinToString(" ") { it.text }, TextBox(span.left, box.top, span.right, box.bottom),
+                if (measured) run else null, confidence = line.confidence)
+        }
+    }
+
+    /** Şeritte tek etiket sayılacak en uzun sözcük dizisi. */
+    const val LABEL_PIECE_WORDS = 3
+
+    /** Parça sözlükteki bir etiket ya da karakter adı çifti ("JASON & LUCIA"). */
+    internal fun isLabelPiece(text: String): Boolean =
+        isNamePair(text.split(" ").filter { it.isNotEmpty() && it != "&" }.joinToString(" ")) || UiCommands.translateLabel(text) != null
 
     /**
      * Satırın yazı boyu: sözcük kutularının ortanca yüksekliği (satır kutusundan büyük değil). Satıra katılan simge
@@ -759,13 +818,20 @@ object ScreenTranslation {
      * tanıma simgeyi satırın ilk sözcüğü okuyor ("KM Collect Chemicals for Kyle"), simge çeviriye giriyor ("KM, Kyle için
      * kimyasalları topluyor") ve kutu simgenin üstünü örtüyordu. Baştaki bir-iki BÜYÜK harflik sözcük, ardında büyük harfle
      * başlayan ve küçük harf taşıyan (BÜYÜK HARFLİ olmayan) en az iki sözcük varsa simgedir: atılır, kutu ikinci sözcükten
-     * başlar. Gerçek kısa sözcükler ([BADGE_WORDS]: "A", "I", "OK", "TV", "DJ"…) dokunulmaz. Mac/iPhone ve Windows aynı.
+     * başlar. Gerçek kısa sözcükler ([BADGE_WORDS]: "A", "I", "OK", "TV", "DJ", "Oh", "Mr"…) dokunulmaz. Yazı tanıma "KK"
+     * simgesinin ikinci harfini küçük okuyunca ("Kh", "Kk", beta.105 testi) iki harflik büyük-küçük baş da simgedir.
+     * Haritadaki mesafe işaretinin birimi ("0.20 mi" → "mi Vicki wants…", kartın ilk sözcüğü) de aynı yoldan atılır
+     * ([DISTANCE_UNITS]). Mac/iPhone ve Windows aynı.
      */
     fun withoutBadge(line: TextLine): TextLine {
         val tokens = line.text.split(' ').filter { it.isNotEmpty() }
         if (tokens.size < 3) return line
         val head = tokens[0]
-        if (head.length !in 1..2 || !head.all { it.isLetter() && it.isUpperCase() } || head in BADGE_WORDS) return line
+        if (head.length !in 1..2) return line
+        val upper = head.all { it.isLetter() && it.isUpperCase() }
+        // "Kh", "Kk": yazı tanıma "KK" simgesinin ikinci harfini küçük okuyor (beta.105 testi).
+        val mixed = head.length == 2 && head.all { it.isLetter() } && head[0].isUpperCase() && head[1].isLowerCase()
+        if (head !in DISTANCE_UNITS && (!(upper || mixed) || head.uppercase(java.util.Locale.ROOT) in BADGE_WORDS)) return line
         val rest = tokens.drop(1)
         if (rest[0].first().isUpperCase().not() || rest.joinToString("").none { it.isLowerCase() }) return line
         val trimmed = line.copy(text = rest.joinToString(" "))
@@ -780,7 +846,12 @@ object ScreenTranslation {
 
     /** Satır başında simge sanılmayacak kısa BÜYÜK harfli sözcükler. */
     internal val BADGE_WORDS: Set<String> = setOf("A", "I", "O", "OK", "TV", "DJ", "UK", "US", "UN", "LA", "NY", "MR", "DR", "MS",
-        "ST", "PS", "AI", "HQ", "ID", "EU", "OF", "IN", "ON", "TO", "MY", "NO", "GO", "UP")
+        "ST", "PS", "AI", "HQ", "ID", "EU", "OF", "IN", "ON", "TO", "MY", "NO", "GO", "UP",
+        "OH", "HI", "HA", "AH", "SO", "WE", "HE", "ME", "BY", "DO", "IF", "IS", "IT", "OR",
+        "AT", "AN", "AS", "AM", "BE", "YO", "UH", "UM", "OX", "OW")
+
+    /** Haritadaki mesafe işaretinin satıra katılan birimi ("0.20 mi", "264 ft"): satırın başında simge gibi atılır. */
+    internal val DISTANCE_UNITS: Set<String> = setOf("mi", "ft", "km", "m", "yd")
 
     /**
      * Satırın başındaki ya da sonundaki kumanda simgesi (kareden tanınmış simge ya da okunmuş tuş adı: "RECENTER L3",
