@@ -408,13 +408,18 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                 if (covering) native.drawRect(left, top, right, bottom, fill)
                 // Menüde yanına yazılan Türkçenin etiketi (TextPaint.label, MenuLayout; TV 0.9.122 ile aynı): koyu, yarı saydam,
                 // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve kontursuz.
-                val label = if (!covering && paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE) parse(paint.label) else null
+                val marked = if (!covering && paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE) parse(paint.label) else null
+                // Seçili (ters renkli: açık zemin, koyu yazı) satırın etiketi de ters renkli (TV ile aynı).
+                fun light(c: Int) = 0.299 * android.graphics.Color.red(c) + 0.587 * android.graphics.Color.green(c) +
+                    0.114 * android.graphics.Color.blue(c) > 160
+                val ink = parse(item.surface?.foreground) ?: android.graphics.Color.WHITE
+                val selected = marked != null && light(first) && !light(ink)
+                val label = if (selected) first else marked
                 val text = paintFor(item.look?.bold == true, condensed(item), p.fontSize).apply {
-                    val ink = parse(item.surface?.foreground) ?: android.graphics.Color.WHITE
                     val r = android.graphics.Color.red(ink)
                     val g = android.graphics.Color.green(ink)
                     val b = android.graphics.Color.blue(ink)
-                    color = if (label == null || 0.299 * r + 0.587 * g + 0.114 * b > 150) ink else android.graphics.Color.rgb(0xF2, 0xF2, 0xF2)
+                    color = if (label == null || selected || 0.299 * r + 0.587 * g + 0.114 * b > 150) ink else android.graphics.Color.rgb(0xF2, 0xF2, 0xF2)
                     if (paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE && label == null) {
                         // Okunurluk: açık yazıda koyu, koyu yazıda açık yumuşak gölge (oyunun istem yazısı gibi).
                         val light = android.graphics.Color.luminance(color) > 0.5f
@@ -425,6 +430,7 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                 if (label != null) {
                     // Etiket yazıyı sarar: genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde.
                     val pad = maxOf(2f, Math.round(p.fontSize * 0.2).toFloat())
+                    val padY = maxOf(1f, Math.round(p.fontSize * 0.06).toFloat())
                     val corner = maxOf(2f, Math.round(pad * 0.8f).toFloat())
                     val tight = minOf(right - left, p.lines.maxOfOrNull { text.measureText(it) } ?: (right - left))
                     val chipLeft = when (inputs[k].second.align) {
@@ -432,7 +438,7 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                         "center" -> left + (right - left - tight) / 2
                         else -> left
                     }
-                    native.drawRoundRect(chipLeft - pad, top - pad, chipLeft + tight + pad, bottom + pad, corner, corner,
+                    native.drawRoundRect(chipLeft - pad, top - padY, chipLeft + tight + pad, bottom + padY, corner, corner,
                         android.graphics.Paint().apply {
                             isAntiAlias = true
                             style = android.graphics.Paint.Style.FILL

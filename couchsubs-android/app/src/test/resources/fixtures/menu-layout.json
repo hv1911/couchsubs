@@ -87,15 +87,15 @@
      "label": "#121419",
      "mode": "beside",
      "room": [
-      0.266,
+      0.316,
       0.2,
-      0.746,
+      0.796,
       0.24
      ],
      "spot": [
-      0.266,
+      0.316,
       0.2,
-      0.466,
+      0.516,
       0.24
      ]
     },
@@ -116,7 +116,7 @@
      ]
     }
    ],
-   "id": "A: sola yaslı liste, Türkçe sağda koyu etikette",
+   "id": "A: sola yaslı liste, Türkçeler en uzun satırın sağında tek sütunda, koyu etikette",
    "items": [
     {
      "align": "left",
@@ -334,7 +334,7 @@
      "room": [
       0.05,
       0.106,
-      0.212,
+      0.204,
       0.146
      ],
      "spot": [
@@ -348,9 +348,9 @@
      "label": "#121419",
      "mode": "beside",
      "room": [
-      0.228,
+      0.236,
       0.106,
-      0.312,
+      0.304,
       0.146
      ],
      "spot": [
@@ -364,7 +364,7 @@
      "label": "#121419",
      "mode": "beside",
      "room": [
-      0.328,
+      0.336,
       0.106,
       0.49,
       0.146
@@ -444,7 +444,7 @@
      "label": "#121419",
      "mode": "beside",
      "room": [
-      0.841,
+      0.847,
       0.898,
       0.95,
       0.928
@@ -744,15 +744,15 @@
      "label": "#121419",
      "mode": "beside",
      "room": [
-      0.316,
+      0.416,
       0.4,
-      0.796,
+      0.896,
       0.44
      ],
      "spot": [
-      0.316,
+      0.416,
       0.4,
-      0.516,
+      0.616,
       0.44
      ]
     },
@@ -828,6 +828,252 @@
      ],
      "line": 0.04,
      "name": "Follow the cargo truck to Port Gellhorn."
+    }
+   ]
+  },
+  {
+   "aspect": 1,
+   "cards": [],
+   "cover": false,
+   "expect": [
+    {
+     "label": "#121419",
+     "mode": "beside",
+     "room": [
+      0.428,
+      0.7,
+      0.788,
+      0.73
+     ],
+     "spot": [
+      0.688,
+      0.7,
+      0.788,
+      0.73
+     ]
+    },
+    {
+     "label": "#121419",
+     "mode": "beside",
+     "room": [
+      0.428,
+      0.75,
+      0.788,
+      0.78
+     ],
+     "spot": [
+      0.638,
+      0.75,
+      0.788,
+      0.78
+     ]
+    }
+   ],
+   "id": "A: sağa yaslı tuş listesi, simgeler sağda: Türkçeler en uzun satırın solunda tek sütunda",
+   "items": [
+    {
+     "align": "right",
+     "bg": "#1A1C20",
+     "box": [
+      0.85,
+      0.7,
+      0.97,
+      0.73
+     ],
+     "cover": [
+      0.85,
+      0.7,
+      0.95,
+      0.73
+     ],
+     "icon": "right",
+     "line": 0.03,
+     "name": "RECENTER"
+    },
+    {
+     "align": "right",
+     "bg": "#1A1C20",
+     "box": [
+      0.8,
+      0.75,
+      0.97,
+      0.78
+     ],
+     "cover": [
+      0.8,
+      0.75,
+      0.95,
+      0.78
+     ],
+     "icon": "right",
+     "line": 0.03,
+     "name": "SET DESTINATION"
+    }
+   ]
+  },
+  {
+   "aspect": 1,
+   "cards": [],
+   "cover": false,
+   "expect": [
+    {
+     "mode": "cover"
+    },
+    {
+     "mode": "cover"
+    },
+    {
+     "label": "#121419",
+     "mode": "beside",
+     "room": [
+      0.575,
+      0.858,
+      0.994,
+      0.888
+     ],
+     "spot": [
+      0.7,
+      0.858,
+      0.95,
+      0.888
+     ]
+    }
+   ],
+   "id": "A: tuş çubuğunda bir tuşa hiçbir yerde yer yoksa çubuğun hepsi örtülür (şerit bir bütün)",
+   "items": [
+    {
+     "align": "right",
+     "bg": "#1A1C20",
+     "box": [
+      0.84,
+      0.94,
+      0.92,
+      0.97
+     ],
+     "cover": [
+      0.86,
+      0.94,
+      0.92,
+      0.97
+     ],
+     "icon": "left",
+     "line": 0.03,
+     "name": "Back"
+    },
+    {
+     "align": "right",
+     "bg": "#1A1C20",
+     "box": [
+      0.74,
+      0.94,
+      0.83,
+      0.97
+     ],
+     "cover": [
+      0.76,
+      0.94,
+      0.83,
+      0.97
+     ],
+     "icon": "left",
+     "line": 0.03,
+     "name": "Select"
+    },
+    {
+     "align": "left",
+     "bg": "#1A1C20",
+     "box": [
+      0.7,
+      0.9,
+      0.95,
+      0.93
+     ],
+     "cover": [
+      0.7,
+      0.9,
+      0.95,
+      0.93
+     ],
+     "line": 0.03,
+     "name": "Legend: discovered stores and activities"
+    }
+   ]
+  },
+  {
+   "aspect": 1,
+   "cards": [],
+   "cover": false,
+   "expect": [
+    {
+     "label": "#121419",
+     "mode": "beside",
+     "room": [
+      0.05,
+      0.456,
+      0.25,
+      0.496
+     ],
+     "spot": [
+      0.1,
+      0.456,
+      0.2,
+      0.496
+     ]
+    },
+    {
+     "label": "#121419",
+     "mode": "beside",
+     "room": [
+      0.31,
+      0.456,
+      0.51,
+      0.496
+     ],
+     "spot": [
+      0.36,
+      0.456,
+      0.46,
+      0.496
+     ]
+    }
+   ],
+   "id": "A: karşı karşıya iki yazı (sola yaslı ad, sağa yaslı değer): arayı ortadan bölerler, sığmayınca ikisi de altına",
+   "items": [
+    {
+     "align": "left",
+     "bg": "#1A1C20",
+     "box": [
+      0.1,
+      0.4,
+      0.2,
+      0.44
+     ],
+     "cover": [
+      0.1,
+      0.4,
+      0.2,
+      0.44
+     ],
+     "line": 0.04,
+     "name": "STYLE"
+    },
+    {
+     "align": "right",
+     "bg": "#1A1C20",
+     "box": [
+      0.36,
+      0.4,
+      0.46,
+      0.44
+     ],
+     "cover": [
+      0.36,
+      0.4,
+      0.46,
+      0.44
+     ],
+     "line": 0.04,
+     "name": "SOUVENIR"
     }
    ]
   }

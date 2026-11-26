@@ -199,11 +199,14 @@ struct ExactScreenText: View {
     /// yuvarlak köşeli; yazının çevresine `pad` kadar taşar, yerleşimi değiştirmez.
     struct LabelChip: View {
         let color: Color?
+        /// Yanlara taşma; alta/üste ince pay (`padY`): alt alta satırların etiketleri birbirine değmez.
         let pad: CGFloat
+        let padY: CGFloat
 
         var body: some View {
             if let color {
-                RoundedRectangle(cornerRadius: max(2, pad * 0.8)).fill(color.opacity(0.86)).padding(-pad)
+                RoundedRectangle(cornerRadius: max(2, pad * 0.8)).fill(color.opacity(0.86))
+                    .padding(.horizontal, -pad).padding(.vertical, -padY)
             }
         }
     }
@@ -217,8 +220,12 @@ struct ExactScreenText: View {
         default: .leading
         }
         // Etiketli yanına yazmada (menü, "yanına yaz") yazı etikette açık renkle, kontursuz.
-        let label = mode == .beside ? color(item.paint?.label) : nil
-        let foreground = label != nil ? labelInk(item.style?.foreground) : color(item.style?.foreground) ?? .white
+        let marked = mode == .beside ? color(item.paint?.label) : nil
+        // Seçili (ters renkli: açık zemin, koyu yazı) satırın etiketi de ters renkli (TV ile aynı).
+        let selected = marked != nil && light(item.paint?.background) && !light(item.style?.foreground)
+        let label = selected ? color(item.paint?.background) : marked
+        let foreground = selected ? color(item.style?.foreground) ?? .black
+            : label != nil ? labelInk(item.style?.foreground) : color(item.style?.foreground) ?? .white
         let halo = outline(item.style?.foreground)
         let haloed = mode == .beside && label == nil
         ZStack(alignment: .topLeading) {
@@ -236,8 +243,15 @@ struct ExactScreenText: View {
         }
         .frame(width: place.width, height: place.height, alignment: .topLeading)
         .background(mode == .cover ? fill(item) : LinearGradient(colors: [.clear], startPoint: .top, endPoint: .bottom))
-        .background(LabelChip(color: label, pad: max(2, (place.fontSize * 0.2).rounded())))
+        .background(LabelChip(color: label, pad: max(2, (place.fontSize * 0.2).rounded()),
+                              padY: max(1, (place.fontSize * 0.06).rounded())))
         .offset(x: place.left, y: place.top)
+    }
+
+    /// Renk açık mı (TV `labelLight` ile aynı eşik).
+    static func light(_ hex: String?) -> Bool {
+        guard let hex, let rgb = SpeakerColors.rgb(hex) else { return false }
+        return 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue > 160.0 / 255
     }
 
     /// Etiketteki yazı: özgün yazı açık renkse o renk (gri liste, sarı vurgu), koyuysa açık gri (TV `labelInk` ile aynı).

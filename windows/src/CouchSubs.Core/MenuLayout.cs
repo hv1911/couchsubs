@@ -19,7 +19,8 @@ namespace CouchSubs.Core;
 /// <item>A, yanına yaz (varsayılan): her satırın Türkçesi İngilizcesinin hemen yanına, koyu zeminli etikete (<c>label</c>)
 /// yazılır: sola yaslı satırda sağına, sağa yaslı satırda (tuş çubuğu) soluna; satırın simgesi ve komşu yazılar örtülmez.
 /// Yanına sığmayan etiket (sekme şeridi, sıkışık tuş çubuğu) altına, olmazsa üstüne yazılır; şeridin bir sekmesi altına
-/// yazıldıysa yakınındaki öbür sekmeler de altına yazılır (şerit bir bütün). Hiçbir yere sığmayan satır örtülür.
+/// yazıldıysa öbür sekmeler de altına, biri hiçbir yere sığmazsa şeridin hepsi örtülür (şerit bir bütün). Listede
+/// Türkçeler tek sütunda başlar (sola yaslı listede en uzun satırın sağında). Hiçbir yere sığmayan satır örtülür.
 /// Haritanın görev kartının (<c>cards</c>) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
 /// resmiyle ikiz kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı
 /// kartla hizalı başka yazılar) kartın satırları da yanına yazılır.</item>
@@ -58,6 +59,8 @@ public static class MenuLayout
     public const double CardGapLines = 0.3;
     /// <summary>Kart dışı bir yazının sol kenarı kartınkine bu kadar yakınsa (satır yüksekliğinin katı) kart bir listenin parçasıdır.</summary>
     public const double ColumnLines = 1.0;
+    /// <summary>Alt alta iki satır bu kadar (satır yüksekliğinin katı) aralıkla aynı listenin sütunundadır.</summary>
+    public const double ColumnGapLines = 1.5;
 
     /// <summary>
     /// Menüdeki çizimler ayardaki biçime kilitlenir. <paramref name="cards"/>: görev kartlarının parçaları (her kart için
@@ -78,7 +81,9 @@ public static class MenuLayout
         var twins = new List<TextBox>();
         foreach (var raw in cards)
         {
-            var card = raw.Where(m => m >= 0 && m < paints.Count && !done.Contains(m)).ToList();
+            // Kutusu boş (genişliği ya da yüksekliği olmayan) parça ikize girmez.
+            var card = raw.Where(m => m >= 0 && m < paints.Count && !done.Contains(m)
+                && paints[m].Cover.Right - paints[m].Cover.Left > 1e-9 && paints[m].Cover.Bottom - paints[m].Cover.Top > 1e-9).ToList();
             if (card.Count == 0) continue;
             var made = CardTwin(card, paints, targets, taken, twins, aspect, portrait);
             if (made is null) continue;
@@ -95,24 +100,158 @@ public static class MenuLayout
             result[i] = paint;
             if (below) vertical.Add(i);
         }
-        // Şerit bir bütün: aynı satırda yakınındaki bir yazı altına/üstüne yazıldıysa yanına yazılan da oraya yazılır
-        // (sekme şeridinde son sekmenin Türkçesi yanında, öbürleri altında kalıyordu).
-        for (var i = 0; i < paints.Count; i++)
+        var free = Enumerable.Range(0, paints.Count).Where(i => !done.Contains(i)).ToList();
+        // Şerit bir bütün: aynı satırda yakın yazılar (sekme şeridi, tuş çubuğu) tek biçimde çizilir. Hepsi yanına sığıyorsa
+        // yanına; değilse hepsi altına/üstüne; biri de sığmazsa hepsi örtülür (şeritte kimi Türkçe yanında, kimi altında, kimi
+        // örtülü kalıyordu).
+        foreach (var strip in Strips(free, paints, targets, taken, aspect))
         {
-            if (done.Contains(i) || vertical.Contains(i) || result[i].Mode != PaintMode.Beside) continue;
-            var c = paints[i].Cover;
-            var lineX = Math.Max(1e-6, targets[i].LineHeight) / Math.Max(0.1, aspect);
-            var strip = vertical.Any(j =>
+            if (strip.Count < 2 || strip.All(i => result[i].Mode == PaintMode.Beside && !vertical.Contains(i))) continue;
+            var tried = strip.Select(i => Beside(i, paints, targets, taken, twins, aspect, basis[i], side: false)).ToList();
+            var below = tried.All(t => t.Below);
+            for (var k = 0; k < strip.Count; k++)
             {
-                var o = paints[j].Cover;
-                return OverlapY(c, o) >= SameRow * Math.Min(c.Bottom - c.Top, o.Bottom - o.Top)
-                    && Math.Max(0, Math.Max(taken[i].Left, taken[j].Left) - Math.Min(taken[i].Right, taken[j].Right)) <= StripGapLines * lineX;
-            });
-            if (!strip) continue;
-            var (paint, below) = Beside(i, paints, targets, taken, twins, aspect, basis[i], side: false);
-            if (below) result[i] = paint;
+                result[strip[k]] = below ? tried[k].Paint : basis[strip[k]];
+                if (below) vertical.Add(strip[k]);
+                else vertical.Remove(strip[k]);
+            }
+        }
+        // Liste bir sütun: alt alta, aynı yana yaslı satırların yanına yazılan Türkçeleri tek sütunda başlar (sola yaslı
+        // listede en uzun satırın sağında, sağa yaslı listede en uzun satırın solunda). Bir satıra orada yer yoksa liste
+        // her satırın yanında kalır.
+        var side = free.Where(i => result[i].Mode == PaintMode.Beside && !vertical.Contains(i) && result[i].Spot is not null).ToList();
+        foreach (var right in new[] { false, true })
+        {
+            var members = side.Where(i => (targets[i].Align == "right") == right)
+                .OrderBy(i => paints[i].Cover.Top).ThenBy(i => i).ToList();
+            var used = new HashSet<int>();
+            foreach (var start in members)
+            {
+                if (!used.Add(start)) continue;
+                var column = new List<int> { start };
+                foreach (var b in members)
+                {
+                    if (used.Contains(b)) continue;
+                    var last = column[^1];
+                    var line = Math.Max(targets[last].LineHeight, targets[b].LineHeight);
+                    var edgeA = right ? taken[start].Right : taken[start].Left;
+                    var edgeB = right ? taken[b].Right : taken[b].Left;
+                    if (Math.Abs(edgeA - edgeB) <= ColumnLines * line / Math.Max(0.1, aspect)
+                        && paints[b].Cover.Top >= paints[last].Cover.Top
+                        && paints[b].Cover.Top - paints[last].Cover.Bottom <= ColumnGapLines * line)
+                    {
+                        used.Add(b);
+                        column.Add(b);
+                    }
+                }
+                if (column.Count < 2) continue;
+                var x = right ? column.Min(i => result[i].Spot!.Value.Right) : column.Max(i => result[i].Spot!.Value.Left);
+                var aligned = column.Select(i => BesideAt(i, x, right, paints, targets, taken, twins, aspect, result[i])).ToList();
+                if (aligned.Any(p => p is null)) continue;
+                for (var k = 0; k < column.Count; k++) result[column[k]] = aligned[k]!;
+            }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Aynı satırda birbirine yakın (aralarında en çok <see cref="StripGapLines"/> satır) yazıların şeritleri; zincirleme
+    /// (sekme şeridinin bütün sekmeleri). Sıra <paramref name="free"/> sırası.
+    /// </summary>
+    internal static List<List<int>> Strips(IReadOnlyList<int> free, IReadOnlyList<TextPaint> paints, IReadOnlyList<TextPainter.Target> targets,
+                                           IReadOnlyList<TextBox> taken, double aspect)
+    {
+        var strips = new List<List<int>>();
+        var seen = new HashSet<int>();
+        foreach (var start in free)
+        {
+            if (!seen.Add(start)) continue;
+            var strip = new List<int> { start };
+            for (var q = 0; q < strip.Count; q++)
+            {
+                var a = strip[q];
+                foreach (var b in free)
+                {
+                    if (seen.Contains(b)) continue;
+                    TextBox ca = paints[a].Cover, cb = paints[b].Cover;
+                    var lineX = Math.Max(1e-6, Math.Min(targets[a].LineHeight, targets[b].LineHeight)) / Math.Max(0.1, aspect);
+                    if (OverlapY(ca, cb) >= SameRow * Math.Min(ca.Bottom - ca.Top, cb.Bottom - cb.Top)
+                        && Math.Max(0, Math.Max(taken[a].Left, taken[b].Left) - Math.Min(taken[a].Right, taken[b].Right)) <= StripGapLines * lineX)
+                    {
+                        seen.Add(b);
+                        strip.Add(b);
+                    }
+                }
+            }
+            strips.Add(strip);
+        }
+        return strips;
+    }
+
+    /// <summary>Satırın kendi kutusu simgesiyle birlikte (okunan kutu); simge okunmadıysa simge tarafına simge kadar yer.</summary>
+    internal static TextBox Own(int i, IReadOnlyList<TextPaint> paints, IReadOnlyList<TextBox> taken, double lineX)
+    {
+        var c = paints[i].Cover;
+        var own = taken[i];
+        if (paints[i].IconSide == "left" && c.Left - own.Left < 0.5 * IconLines * lineX) own = own with { Left = c.Left - IconLines * lineX };
+        if (paints[i].IconSide == "right" && own.Right - c.Right < 0.5 * IconLines * lineX) own = own with { Right = c.Right + IconLines * lineX };
+        return own;
+    }
+
+    /// <summary>Satırın engelleri: öbür yazıların kutuları (sırasıyla) ve ikiz kartlar (sıra -1).</summary>
+    internal static List<(int J, TextBox Box)> Others(int i, IReadOnlyList<TextBox> taken, IReadOnlyList<TextBox> twins) =>
+        [.. Enumerable.Range(0, taken.Count).Where(j => j != i).Select(j => (j, taken[j])), .. twins.Select(t => (-1, t))];
+
+    /// <summary>
+    /// Yanına yazılan Türkçenin <paramref name="start"/>'tan (sola yaslıda sol kenarı, sağa yaslıda sağ kenarı) uzayabileceği
+    /// son nokta: ekranın kenarı, en çok erişim, satırdaki yazı ya da ikiz kart. Karşıdan bakan komşu (sola yaslı satırın
+    /// sağında sağa yaslı değer, "STYLE … SOUVENIR") arayı ortadan böler; ikisinin Türkçesi üst üste binmez.
+    /// </summary>
+    internal static double Limit(int i, double start, bool right, TextBox own, IReadOnlyList<TextPaint> paints,
+                                 IReadOnlyList<TextPainter.Target> targets, IReadOnlyList<(int J, TextBox Box)> others, double aspect)
+    {
+        var c = paints[i].Cover;
+        var lineX = Math.Max(1e-6, targets[i].LineHeight) / Math.Max(0.1, aspect);
+        double gap = GapLines * lineX, edge = EdgeLines * lineX, eps = 1e-9, w = c.Right - c.Left;
+        var reach = Math.Max(BesideMax * w + lineX, ReachLines * lineX);
+        var touch = TouchShare * (c.Bottom - c.Top);
+        if (!right)
+        {
+            var limit = Math.Min(1 - edge, start + reach);
+            foreach (var (j, o) in others)
+            {
+                if (OverlapY(o, c) <= touch || o.Right <= start) continue;
+                var facing = j >= 0 && targets[j].Align == "right" && o.Left >= own.Right - eps;
+                limit = Math.Min(limit, facing ? (own.Right + o.Left - gap) / 2 : o.Left - gap);
+            }
+            return limit;
+        }
+        var low = Math.Max(edge, start - reach);
+        foreach (var (j, o) in others)
+        {
+            if (OverlapY(o, c) <= touch || o.Left >= start) continue;
+            var facing = j >= 0 && targets[j].Align != "right" && o.Right <= own.Left + eps;
+            low = Math.Max(low, facing ? (o.Right + own.Left + gap) / 2 : o.Right + gap);
+        }
+        return low;
+    }
+
+    /// <summary>
+    /// Yanına yazma, Türkçe <paramref name="x"/>'te başlarken (sola yaslıda sol kenarı, sağa yaslıda sağ kenarı; listenin
+    /// sütunu): engeller <see cref="Limit"/> ile aynı; yer yoksa null.
+    /// </summary>
+    internal static TextPaint? BesideAt(int i, double x, bool right, IReadOnlyList<TextPaint> paints, IReadOnlyList<TextPainter.Target> targets,
+                                        IReadOnlyList<TextBox> taken, IReadOnlyList<TextBox> twins, double aspect, TextPaint current)
+    {
+        var c = paints[i].Cover;
+        var lineX = Math.Max(1e-6, targets[i].LineHeight) / Math.Max(0.1, aspect);
+        var w = c.Right - c.Left;
+        var reach = Math.Max(BesideMax * w + lineX, ReachLines * lineX);
+        var limit = Limit(i, x, right, Own(i, paints, taken, lineX), paints, targets, Others(i, taken, twins), aspect);
+        if (Math.Abs(limit - x) < RoomShare * Math.Min(w, reach) || (right ? limit > x : limit < x)) return null;
+        return right
+            ? current with { Spot = new TextBox(Math.Max(limit, x - w), c.Top, x, c.Bottom), SpotRoom = new TextBox(limit, c.Top, x, c.Bottom) }
+            : current with { Spot = new TextBox(x, c.Top, Math.Min(limit, x + w), c.Bottom), SpotRoom = new TextBox(x, c.Top, limit, c.Bottom) };
     }
 
     /// <summary>Ölçülen örtü, zemin ve yazı rengi kalır; kip örtmeye döner, yanına yazma ve ikiz alanları silinir.</summary>
@@ -143,22 +282,17 @@ public static class MenuLayout
         var lineX = lineY / Math.Max(0.1, aspect);
         double gap = GapLines * lineX, edge = EdgeLines * lineX, eps = 1e-9;
         double w = c.Right - c.Left, h = c.Bottom - c.Top;
+        // Genişliği ya da yüksekliği olmayan kutu (bozuk okuma) yanına yazılmaz.
+        if (w <= eps || h <= eps) return (basis, false);
         var reach = Math.Max(BesideMax * w + lineX, ReachLines * lineX);
-        // Satırın kendi kutusu simgesiyle birlikte (okunan kutu); simge okunmadıysa simge tarafına simge kadar yer.
-        var own = taken[i];
-        if (paints[i].IconSide == "left" && c.Left - own.Left < 0.5 * IconLines * lineX) own = own with { Left = c.Left - IconLines * lineX };
-        if (paints[i].IconSide == "right" && own.Right - c.Right < 0.5 * IconLines * lineX) own = own with { Right = c.Right + IconLines * lineX };
-        var others = Enumerable.Range(0, paints.Count).Where(j => j != i).Select(j => taken[j]).Concat(twins).ToList();
+        var own = Own(i, paints, taken, lineX);
+        var others = Others(i, taken, twins);
         var p = basis with { Mode = PaintMode.Beside, Label = LabelColor };
         var touch = TouchShare * h;
         if (side && targets[i].Align != "right")
         {
             var left = own.Right + gap;
-            var limit = Math.Min(1 - edge, left + reach);
-            foreach (var o in others)
-            {
-                if (OverlapY(o, c) > touch && o.Right > left) limit = Math.Min(limit, o.Left - gap);
-            }
+            var limit = Limit(i, left, false, own, paints, targets, others, aspect);
             if (limit - left >= RoomShare * Math.Min(w, reach))
             {
                 return (p with
@@ -171,11 +305,7 @@ public static class MenuLayout
         else if (side)
         {
             var right = own.Left - gap;
-            var limit = Math.Max(edge, right - reach);
-            foreach (var o in others)
-            {
-                if (OverlapY(o, c) > touch && o.Left < right) limit = Math.Max(limit, o.Right + gap);
-            }
+            var limit = Limit(i, right, true, own, paints, targets, others, aspect);
             if (right - limit >= RoomShare * Math.Min(w, reach))
             {
                 return (p with
@@ -186,25 +316,31 @@ public static class MenuLayout
             }
         }
         // Yanına sığmayan etiket (sekme şeridinin sekmesi, sıkışık tuş çubuğu) altına, olmazsa üstüne; aynı satırdaki
-        // komşularla arasının ortasını geçmez (komşunun etiketiyle arada gap kalır), başka yazının üstüne binmez.
+        // komşularla arasının ortasını geçmez (komşunun etiketiyle arada boşluk kalır), başka yazının üstüne binmez, uzadığı
+        // alan da o bantta başka yazıya varmaz.
         var mates = Enumerable.Range(0, paints.Count).Where(j =>
             j != i && OverlapY(c, paints[j].Cover) >= SameRow * Math.Min(h, paints[j].Cover.Bottom - paints[j].Cover.Top));
         double l = Math.Max(edge, own.Left - 0.5 * w), r = Math.Min(1 - edge, own.Right + 0.5 * w);
         foreach (var j in mates)
         {
             var o = taken[j];
-            if (o.Left >= own.Right - eps) r = Math.Min(r, (own.Right + o.Left - gap) / 2);
-            else if (o.Right <= own.Left + eps) l = Math.Max(l, (o.Right + own.Left + gap) / 2);
+            if (o.Left >= own.Right - eps) r = Math.Min(r, (own.Right + o.Left) / 2 - gap);
+            else if (o.Right <= own.Left + eps) l = Math.Max(l, (o.Right + own.Left) / 2 + gap);
         }
-        l = Math.Min(l, c.Left);
-        r = Math.Max(r, c.Right);
         var step = GapLines * lineY;
         foreach (var top in new[] { own.Bottom + step, own.Top - step - h })
         {
             var spot = new TextBox(c.Left, top, c.Right, top + h);
-            var hit = others.Any(o => Math.Min(o.Right, spot.Right) > Math.Max(o.Left, spot.Left) && OverlapY(o, spot) > touch);
-            if (spot.Top < 0 || spot.Bottom > 1 || hit) continue;
-            return (p with { Spot = spot, SpotRoom = new TextBox(l, top, r, top + h) }, true);
+            if (spot.Top < 0 || spot.Bottom > 1) continue;
+            if (others.Any(o => Math.Min(o.Box.Right, spot.Right) > Math.Max(o.Box.Left, spot.Left) && OverlapY(o.Box, spot) > touch)) continue;
+            double bandLeft = l, bandRight = r;
+            foreach (var (_, o) in others)
+            {
+                if (OverlapY(o, spot) <= touch) continue;
+                if (o.Right <= c.Left + eps) bandLeft = Math.Max(bandLeft, o.Right + gap);
+                else if (o.Left >= c.Right - eps) bandRight = Math.Min(bandRight, o.Left - gap);
+            }
+            return (p with { Spot = spot, SpotRoom = new TextBox(Math.Min(bandLeft, c.Left), top, Math.Max(bandRight, c.Right), top + h) }, true);
         }
         return (basis, false);
     }

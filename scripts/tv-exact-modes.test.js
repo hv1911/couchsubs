@@ -91,12 +91,13 @@ function render(list) {
           var r = range.getBoundingClientRect(), rb = row.getBoundingClientRect();
           return { text: row.textContent, left: r.left, right: r.right, top: rb.top, bottom: rb.bottom };
         });
-        var img = el.querySelector('img'), tail = el.querySelector('.exact-tail');
+        var img = el.querySelector('img'), tail = el.querySelector('.exact-tail'), chip = el.querySelector('.exact-label');
         return { text: el.textContent, cls: el.className, left: b.left, top: b.top, right: b.right, bottom: b.bottom,
           bg: cs.backgroundColor, radius: cs.borderTopLeftRadius, bottomLeft: cs.borderBottomLeftRadius,
           shadow: cs.textShadow, font: parseFloat(cs.fontSize), lines: lines, color: cs.color, boxShadow: cs.boxShadow,
           img: img ? Object.assign({ radius: getComputedStyle(img).borderTopLeftRadius }, JSON.parse(JSON.stringify(img.getBoundingClientRect()))) : null,
-          tail: !!tail };
+          tail: !!tail,
+          chip: chip ? Object.assign({ bg: getComputedStyle(chip).backgroundColor }, JSON.parse(JSON.stringify(chip.getBoundingClientRect()))) : null };
       });
       $('result').textContent = btoa(unescape(encodeURIComponent(JSON.stringify(out))));
       </script>`;
@@ -214,31 +215,41 @@ test('tek satırlık istemin dev ikizi yazının çevresine kırpılır; aynı s
 
 // Menüde "yanına yaz" (TV 0.9.122, bilgisayar MenuLayout, #1365): beta.105'te haritanın üstüne zeminsiz yazılan Türkçe
 // desenli zeminde okunmuyordu. label gelince Türkçe koyu, yarı saydam, yuvarlak köşeli etikette, açık renkle ve kontursuz
-// yazılır; özgün yazı açık kalır, etiket yazıyı sarar ve çevresine taşar. Özgün yazı açık renkse (gri liste, sarı vurgu) o renk
-// kalır, koyuysa (ters renkli seçili satır) açık gri olur.
+// yazılır; özgün yazı açık kalır, etiket (öğenin ilk çocuğu) yazıyı sarar ve çevresine payla taşar. Özgün yazı açık renkse
+// (gri liste, sarı vurgu) o renk kalır, koyuysa açık gri olur; seçili (ters renkli) satırın etiketi de ters renkli.
 // label'sız beside (eski bilgisayar) zeminsiz, konturlu kalır.
-test('menüde yanına yazılan Türkçe koyu etikette, açık renkle; özgün açık kalır; label yoksa eskisi gibi', { skip: !browser && 'tarayıcı yok' }, () => {
-  const row = (text, top, fg, label) => ({ text, box: px(100, top, 400, top + 36), line: 36 / H, lineH: 36 / H,
-    cover: px(98, top - 2, 402, top + 38), bg: '#2A2E33', bgPat: true, fg, weight: 400, upper: false, align: 'left',
+test('menüde yanına yazılan Türkçe koyu etikette, açık renkle; seçili satır ters renkli; label yoksa eskisi gibi', { skip: !browser && 'tarayıcı yok' }, () => {
+  const row = (text, top, bg, fg, label) => ({ text, box: px(100, top, 400, top + 36), line: 36 / H, lineH: 36 / H,
+    cover: px(98, top - 2, 402, top + 38), bg, bgPat: true, fg, weight: 400, upper: false, align: 'left',
     mode: 'beside', spot: px(420, top - 2, 724, top + 38), spotRoom: px(420, top - 2, 1100, top + 38), label,
-    surface: { background: '#2A2E33', foreground: fg, flat: false }, style: { align: 'left', bold: false, condensed: true, upper: false } });
-  const drawn = render([row('Vicki\'nin Patronunu Soy', 300, '#202326', '#121419'), row('Kyle İçin Kimyasalları Topla', 360, '#FFD34D', '#121419'),
-    row('Bret ile Buluş', 420, '#9AA0A6', undefined), row('Geleceğe Biriktir', 480, '#9AA0A6', 'koyu')]);
+    surface: { background: bg, foreground: fg, flat: false }, style: { align: 'left', bold: false, condensed: true, upper: false } });
+  const drawn = render([row('Vicki\'nin Patronunu Soy', 300, '#2A2E33', '#5A5F66', '#121419'),
+    row('Kyle İçin Kimyasalları Topla', 360, '#2A2E33', '#FFD34D', '#121419'),
+    row('Bret ile Buluş', 420, '#2A2E33', '#9AA0A6', undefined), row('Geleceğe Biriktir', 480, '#2A2E33', '#9AA0A6', 'koyu'),
+    row('Kingpin Bowling\'i Soy', 540, '#E8E8E8', '#101010', '#121419')]);
   const dim = drawn.find(el => el.text.indexOf('Vicki') === 0), lit = drawn.find(el => el.text.indexOf('Kyle') === 0);
   const plain = drawn.find(el => el.text === 'Bret ile Buluş'), bad = drawn.find(el => el.text === 'Geleceğe Biriktir');
-  for (const el of [dim, lit]) {
-    assert.equal(el.bg, 'rgba(18, 20, 25, 0.86)', el.text + ': koyu yarı saydam etiket: ' + el.bg);
+  const selected = drawn.find(el => el.text.indexOf('Kingpin') === 0);
+  for (const el of [dim, lit, selected]) {
+    assert.equal(el.bg, 'rgba(0, 0, 0, 0)', el.text + ': öğenin kendi zemini yok (etiket çocukta)');
+    assert.ok(el.chip, el.text + ': etiket çizildi');
     assert.match(el.cls, /\blabel\b/, el.text + ': etiket sınıfı');
     assert.equal(el.shadow, 'none', el.text + ': etikette kontur yok');
-    assert.match(el.boxShadow, /rgba\(18, 20, 25, 0\.86\)/, el.text + ': etiket yazının çevresine taşar: ' + el.boxShadow);
+    assert.ok(el.chip.left < el.left && el.chip.right > el.right && el.chip.top < el.top && el.chip.bottom > el.bottom,
+      el.text + ': etiket yazının çevresine taşar: ' + JSON.stringify(el.chip));
+    assert.ok(el.chip.top - (el.top - 36 * 0.95 * 0.06) >= -1.5, el.text + ': alta/üste ince pay (alt alta etiketler değmez)');
     assert.ok(el.left >= 420 - 1, el.text + ': özgün yazı açık kalır: ' + el.left);
     assert.ok(Math.abs(el.lines[0].left - 420) <= 2, el.text + ': özgüne yaslı (solda): ' + el.lines[0].left);
     assert.ok(el.right - Math.max.apply(null, el.lines.map(l => l.right)) <= 3, el.text + ': etiket yazıyı sarar: ' + el.right);
   }
-  assert.equal(dim.color, 'rgb(242, 242, 242)', 'koyu özgün yazı (ters renkli seçili satır): etikette açık gri');
-  assert.equal(lit.color, 'rgb(255, 211, 77)', 'açık özgün yazı (seçili satır): kendi rengi');
+  for (const el of [dim, lit]) assert.equal(el.chip.bg, 'rgba(18, 20, 25, 0.86)', el.text + ': koyu yarı saydam etiket: ' + el.chip.bg);
+  assert.equal(dim.color, 'rgb(242, 242, 242)', 'koyu özgün yazı: etikette açık gri');
+  assert.equal(lit.color, 'rgb(255, 211, 77)', 'açık özgün yazı (vurgu): kendi rengi');
+  assert.equal(selected.chip.bg, 'rgba(232, 232, 232, 0.86)', 'seçili satırın etiketi açık zemin: ' + selected.chip.bg);
+  assert.equal(selected.color, 'rgb(16, 16, 16)', 'seçili satırın yazısı koyu');
   for (const el of [plain, bad]) {
     assert.equal(el.bg, 'rgba(0, 0, 0, 0)', el.text + ': label yok/bozuk: zeminsiz');
+    assert.equal(el.chip, null, el.text + ': etiket yok');
     assert.notEqual(el.shadow, 'none', el.text + ': konturlu');
     assert.doesNotMatch(el.cls, /\blabel\b/, el.text + ': etiket sınıfı yok');
   }
