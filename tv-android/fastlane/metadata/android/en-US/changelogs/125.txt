@@ -1,0 +1,1 @@
+0.9.122: In menus the Turkish is written next to the English on a readable dark label (when "Cover the English in menus" is off on the computer); text no longer gets lost over the map or patterned backgrounds.

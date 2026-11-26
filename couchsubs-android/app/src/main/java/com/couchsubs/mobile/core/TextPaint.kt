@@ -73,6 +73,12 @@ data class TextPaint(
      * çizgi): ikiz de aynı çizgiyle çizilir. null: çizgi yok. TV'ye `edge` ({color, top, right, bottom, left}).
      */
     val edge: Edge? = null,
+    /**
+     * beside: Türkçenin etiket zemini (menüde "yanına yaz" biçimi, [MenuLayout.LABEL_COLOR]): TV yazıyı bu renkte yarı
+     * saydam, köşeleri yuvarlak etikete açık renkle yazar (konturuz). null: zeminsiz, özgün stilde konturla. TV'ye `label`;
+     * eski TV yok sayıp zeminsiz yazar.
+     */
+    val label: String? = null,
 ) {
     /** Kenar çizgisi: rengi ve her yandaki kalınlığı (kare yüksekliğine oranla; 0: o yanda çizgi yok). */
     data class Edge(val color: String, val top: Double, val right: Double, val bottom: Double, val left: Double)

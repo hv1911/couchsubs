@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '0.9.121';
+  var APP_VERSION = '0.9.122';
   var t = window.t;
   var config = window.COUCHSUBS_CONFIG || {};
   var platform = window.COUCHSUBS_PLATFORM;
@@ -2208,6 +2208,25 @@
       keepSize: mode === 'twin' };
   }
 
+  // Menüde yanına yazılan Türkçenin etiketi (TV 0.9.122; bilgisayar MenuLayout, #1365): "Menülerde İngilizcenin üstünü
+  // ört" kapalıyken Türkçe İngilizcenin yanına koyu, yarı saydam, köşeleri yuvarlak etikete açık renkle yazılır (haritanın
+  // ya da desenli zeminin üstünde konturlu yazı okunmuyordu, beta.105). Etiket yazının çevresine payla taşar (box-shadow:
+  // yerleşim değişmez). Eski bilgisayar label göndermez: zeminsiz, konturlu yazı sürer.
+  function besideLabel(item) {
+    return item && exactMode(item) === 'beside' && phoneColor(item.label) ? item.label : null;
+  }
+
+  function labelFill(hex) {
+    return 'rgba(' + parseInt(hex.slice(1, 3), 16) + ',' + parseInt(hex.slice(3, 5), 16) + ',' + parseInt(hex.slice(5, 7), 16) + ',0.86)';
+  }
+
+  // Etiketteki yazı: özgün yazı açık renkse o renk (seçili satırın sarısı), koyuysa açık gri.
+  function labelInk(fg) {
+    if (!phoneColor(fg)) return '#F2F2F2';
+    var r = parseInt(fg.slice(1, 3), 16), g = parseInt(fg.slice(3, 5), 16), b = parseInt(fg.slice(5, 7), 16);
+    return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? fg : '#F2F2F2';
+  }
+
   // Okunurluk konturu: açık yazıda koyu, koyu yazıda açık.
   function exactHalo(fg, size) {
     var r = parseInt(fg.slice(1, 3), 16), g = parseInt(fg.slice(3, 5), 16), b = parseInt(fg.slice(5, 7), 16);
@@ -2377,6 +2396,17 @@
       return Math.ceil(pageRect(probe.getBoundingClientRect(), scale).width) + 1;
     }
     var placed = exactLayout(inputs, measure);
+    // Etiket yazıyı sarar (TV 0.9.122): genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde kalır; boş alan etiketle
+    // dolmaz, şeridin etiketleri birbirine değmez.
+    for (var t = 0; t < items.length; t++) {
+      if (!besideLabel(items[t])) continue;
+      var tight = 0;
+      for (var q = 0; q < placed[t].lines.length; q++) tight = Math.max(tight, measure(placed[t].lines[q], placed[t].fontSize, t));
+      if (tight <= 0 || tight >= placed[t].width) continue;
+      if (inputs[t].align === 'right') placed[t].left += placed[t].width - tight;
+      else if (inputs[t].align === 'center') placed[t].left += (placed[t].width - tight) / 2;
+      placed[t].width = tight;
+    }
     host.removeChild(probe);
     var drawn = exactTwins(host, items, placed, width, height);
     for (var n = 0; n < items.length; n++) {
@@ -2390,15 +2420,22 @@
       el.style.top = place.top + 'px';
       el.style.width = place.width + 'px';
       el.style.height = place.height + 'px';
-      el.style.backgroundColor = mode === 'cover' ? source.bg : 'transparent';
-      if (mode === 'beside') el.style.textShadow = exactHalo(source.fg, place.fontSize);
+      var label = besideLabel(source);
+      el.style.backgroundColor = mode === 'cover' ? source.bg : label ? labelFill(label) : 'transparent';
+      if (mode === 'beside' && !label) el.style.textShadow = exactHalo(source.fg, place.fontSize);
+      if (label) {
+        var pad = Math.max(2, Math.round(place.fontSize * 0.2));
+        el.className += ' label';
+        el.style.boxShadow = '0 0 0 ' + pad + 'px ' + labelFill(label);
+        el.style.borderRadius = Math.max(2, Math.round(pad * 0.8)) + 'px';
+      }
       if (mode === 'cover' && phoneColor(source.bg2) && (source.bgDir === 'h' || source.bgDir === 'v')) {
         var webkit = '-webkit-linear-gradient(' + (source.bgDir === 'h' ? 'left' : 'top') + ', ' + source.bg + ', ' + source.bg2 + ')';
         var standard = 'linear-gradient(' + (source.bgDir === 'h' ? 'to right' : 'to bottom') + ', ' + source.bg + ', ' + source.bg2 + ')';
         el.style.backgroundImage = webkit;
         el.style.backgroundImage = standard;
       }
-      el.style.color = source.fg;
+      el.style.color = label ? labelInk(source.fg) : source.fg;
       el.style.fontWeight = source.weight === 700 ? '700' : '400';
       el.style.fontFamily = exactFamily(source);
       el.style.fontSize = place.fontSize + 'px';

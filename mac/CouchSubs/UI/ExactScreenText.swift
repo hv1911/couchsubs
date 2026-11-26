@@ -24,16 +24,18 @@ struct ExactScreenText: View {
         // dar yazı tipiyle ölçülür (hepsi dar değilse geniş ölçü).
         let bold = shown.contains { $0.look?.bold == true }
         let narrow = !shown.isEmpty && shown.allSatisfy(Self.condensed)
-        let placed = ScreenFit.exact(inputs) { text, fontSize in
+        let measure: (String, Double) -> Double = { text, fontSize in
             if narrow, let width = EmbeddedFonts.width(text, size: CGFloat(fontSize), bold: bold) { return Double(width) }
             return Double(ScreenFit.textWidth(text, size: CGFloat(fontSize), bold: bold))
         }
+        let placed = ScreenFit.exact(inputs, measure: measure)
+        let fitted = Self.hugged(shown, inputs, placed, measure: measure)
         let twins = Self.twins(shown, placed, size: size)
         ZStack(alignment: .topLeading) {
             ForEach(Array(twins.enumerated()), id: \.offset) { _, twin in
                 Self.panel(twin)
             }
-            ForEach(Array(zip(shown.indices, placed)), id: \.0) { index, place in
+            ForEach(Array(zip(shown.indices, fitted)), id: \.0) { index, place in
                 Self.block(shown[index], place)
             }
         }
@@ -50,6 +52,24 @@ struct ExactScreenText: View {
         var portrait: (image: CGImage, frame: CGRect)?
         /// Kenar çizgisi: rengi ve her yandaki kalınlığı (piksel; kutunun dışında).
         var edge: (color: Color, top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)?
+    }
+
+    /// Menü etiketi yazıyı sarar (`TextPaint.label`; TV 0.9.122 ile aynı): genişliği en uzun satır kadar, özgüne yaslı kenarı
+    /// yerinde; boş alan etiketle dolmaz.
+    static func hugged(_ items: [ScreenTranslation.Item], _ inputs: [ScreenFit.ExactInput], _ placed: [ScreenFit.ExactPlacement],
+                       measure: (String, Double) -> Double) -> [ScreenFit.ExactPlacement] {
+        placed.enumerated().map { k, place in
+            guard k < items.count, k < inputs.count, let paint = items[k].paint, paint.mode == .beside, paint.label != nil,
+                  let tight = place.lines.map({ measure($0, place.fontSize) }).max(), tight > 0, tight < place.width else { return place }
+            var fitted = place
+            switch inputs[k].align {
+            case .right: fitted.left += place.width - tight
+            case .center: fitted.left += (place.width - tight) / 2
+            case .left: break
+            }
+            fitted.width = tight
+            return fitted
+        }
     }
 
     /// Özgün yazı dar ve konuşma satırı değil: gömülü dar yazı tipi (#1297: konuşma satırı hiç dar çizilmez).
@@ -169,6 +189,19 @@ struct ExactScreenText: View {
         }
     }
 
+    /// Menüde yanına yazılan Türkçenin etiketi (`TextPaint.label`, `MenuLayout`; TV 0.9.122 ile aynı): koyu, yarı saydam,
+    /// yuvarlak köşeli; yazının çevresine `pad` kadar taşar, yerleşimi değiştirmez.
+    struct LabelChip: View {
+        let color: Color?
+        let pad: CGFloat
+
+        var body: some View {
+            if let color {
+                RoundedRectangle(cornerRadius: max(2, pad * 0.8)).fill(color.opacity(0.86)).padding(-pad)
+            }
+        }
+    }
+
     @ViewBuilder
     static func block(_ item: ScreenTranslation.Item, _ place: ScreenFit.ExactPlacement) -> some View {
         let mode = item.paint?.mode ?? .cover
@@ -177,15 +210,18 @@ struct ExactScreenText: View {
         case .right: .trailing
         default: .leading
         }
-        let foreground = color(item.style?.foreground) ?? .white
+        // Etiketli yanına yazmada (menü, "yanına yaz") yazı etikette açık renkle, konturuz.
+        let label = mode == .beside ? color(item.paint?.label) : nil
+        let foreground = label != nil ? labelInk(item.style?.foreground) : color(item.style?.foreground) ?? .white
         let halo = outline(item.style?.foreground)
+        let haloed = mode == .beside && label == nil
         ZStack(alignment: .topLeading) {
             ForEach(Array(place.lines.enumerated()), id: \.offset) { k, text in
                 Text(verbatim: text)
                     .font(font(item, size: place.fontSize))
                     .foregroundStyle(foreground)
-                    .shadow(color: mode == .beside ? halo : .clear, radius: mode == .beside ? max(1, place.fontSize * 0.08) : 0)
-                    .shadow(color: mode == .beside ? halo : .clear, radius: 0, x: 0, y: mode == .beside ? 1 : 0)
+                    .shadow(color: haloed ? halo : .clear, radius: haloed ? max(1, place.fontSize * 0.08) : 0)
+                    .shadow(color: haloed ? halo : .clear, radius: 0, x: 0, y: haloed ? 1 : 0)
                     .lineLimit(1)
                     .fixedSize()
                     .frame(width: place.width, height: place.rowHeight, alignment: alignment)
@@ -194,7 +230,16 @@ struct ExactScreenText: View {
         }
         .frame(width: place.width, height: place.height, alignment: .topLeading)
         .background(mode == .cover ? fill(item) : LinearGradient(colors: [.clear], startPoint: .top, endPoint: .bottom))
+        .background(LabelChip(color: label, pad: max(2, (place.fontSize * 0.2).rounded())))
         .offset(x: place.left, y: place.top)
+    }
+
+    /// Etiketteki yazı: özgün yazı açık renkse o renk (gri liste, sarı vurgu), koyuysa açık gri (TV `labelInk` ile aynı).
+    static func labelInk(_ hex: String?) -> Color {
+        guard let hex, let rgb = SpeakerColors.rgb(hex), 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue > 150.0 / 255 else {
+            return Color(.sRGB, red: 0xF2 / 255.0, green: 0xF2 / 255.0, blue: 0xF2 / 255.0)
+        }
+        return Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 
     /// Çizimin yazı tipi: dar özgünde gömülü dar yazı tipi (yüklenemezse sistemin dar genişliği), değilse sistem.

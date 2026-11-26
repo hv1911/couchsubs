@@ -6,7 +6,7 @@ import Foundation
 /// Bir ekran yazısının yerinde, arayüz Türkçe yapılmış gibi çizilmesi için göndericinin kareden ölçtükleri (TV pikselleri
 /// okuyamaz). Yalnız yazı değişince ölçülür (Windows: TextPaint.cs, Android: TextPaint.kt; aynı kurallar ve eşikler).
 /// TV'ye öğenin `bg`, `bg2`, `bgDir`, `bgPat`, `fg`, `weight`, `upper`, `align`, `lineH`, `cover`, `grow`, `group`
-/// alanlarıyla (çizim kipi: `mode`, `spot`, `spotRoom`, `twinBox`, `radius`, `scale`, `tail`, `icon`) gider; eski TV
+/// alanlarıyla (çizim kipi: `mode`, `spot`, `spotRoom`, `twinBox`, `radius`, `scale`, `tail`, `icon`, `label`) gider; eski TV
 /// bunları yok sayıp eski çizimi sürdürür.
 public struct TextPaint: Equatable, Sendable {
     public enum Direction: String, Sendable { case horizontal = "h", vertical = "v" }
@@ -58,6 +58,10 @@ public struct TextPaint: Equatable, Sendable {
     /// `twin`: özgün panelin kenar çizgisi (panelin hemen dışındaki düz renkli ince şerit; GTA 6 kartının üstündeki renkli
     /// çizgi): ikiz de aynı çizgiyle çizilir. nil: çizgi yok. TV'ye `edge` ({color, top, right, bottom, left}).
     public var edge: Edge? = nil
+    /// `beside`: Türkçenin etiket zemini (menüde "yanına yaz" biçimi, `MenuLayout.labelColor`): TV yazıyı bu renkte yarı
+    /// saydam, köşeleri yuvarlak etikete açık renkle yazar (konturuz). nil: zeminsiz, özgün stilde konturla. TV'ye `label`;
+    /// eski TV yok sayıp zeminsiz yazar.
+    public var label: String? = nil
 
     /// Kenar çizgisi: rengi ve her yandaki kalınlığı (kare yüksekliğine oranla; 0: o yanda çizgi yok).
     public struct Edge: Equatable, Sendable {

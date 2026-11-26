@@ -860,6 +860,8 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
                 json["mode"] = paint.Mode;
                 json["spot"] = BoxJson(spot);
                 json["spotRoom"] = BoxJson(spotRoom);
+                // Menüde yanına yazılan Türkçenin etiket zemini (TV uygulaması 0.9.122; eski TV zeminsiz yazar).
+                if (paint.Mode == PaintMode.Beside && paint.Label is { } label && IsRgb(label)) json["label"] = label;
                 if (paint.Mode == PaintMode.Twin && paint.Twin is { } twin)
                 {
                     json["twinBox"] = BoxJson(twin);

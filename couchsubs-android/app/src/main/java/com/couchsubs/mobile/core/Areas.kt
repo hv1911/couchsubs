@@ -545,7 +545,8 @@ class RegionWatcher(
                 icons = groups.flatMap { group -> group.icons ?: group.paragraphs.map { emptyList<IconSlot>() } }
                 var start = 0
                 // Haritanın görev kartının parçası olan grup: çizim kipi seçiminde görev/hedef ([paintKind]).
-                fun onCard(group: ScreenTranslation.Group) = cards.any { card ->
+                // Kartın sırası (menüde ikiz kart kart başına kurulur, [MenuLayout]); kart parçası değilse -1.
+                fun cardOf(group: ScreenTranslation.Group) = cards.indexOfFirst { card ->
                     card.all.any { i ->
                         val b = lines[i].box!!
                         val x = (b.left + b.right) / 2
@@ -554,8 +555,9 @@ class RegionWatcher(
                     }
                 }
                 val list = groups.map { group ->
+                    val cardNo = cardOf(group)
                     Block(start, group.paragraphs.size, group.box.placedIn(region.box), group.lineHeight * height, group.rows,
-                        card = onCard(group))
+                        card = cardNo >= 0, cardNo = cardNo)
                         .also { start += group.paragraphs.size }
                 }
                 blocks = list
@@ -644,7 +646,7 @@ class RegionWatcher(
         internal fun styled(
             candidate: Candidate, reading: Reading, region: CropRegion, frame: GrayFrame?, color: ((Int, Int) -> Int)? = null,
             modes: Boolean = false, kind: ScreenTextKind? = null,
-            screen: GrayFrame? = null, screenColor: ((Int, Int) -> Int)? = null,
+            screen: GrayFrame? = null, screenColor: ((Int, Int) -> Int)? = null, menuCover: Boolean? = null,
         ): Candidate {
             if (frame == null) return candidate
             val groups = candidate.blocks ?: run {
@@ -674,7 +676,8 @@ class RegionWatcher(
                     parts.forEachIndexed { i, boxes ->
                         val box = boxes.reduce { a, b -> a.union(b) }
                         val heights = boxes.map { it.bottom - it.top }.sorted()
-                        blocks.add(Block(group.start + i, 1, box, heights[heights.size / 2], boxes.size, card = group.card))
+                        blocks.add(Block(group.start + i, 1, box, heights[heights.size / 2], boxes.size, card = group.card,
+                            cardNo = group.cardNo))
                         aligns.add(align)
                     }
                 } else {
@@ -720,12 +723,18 @@ class RegionWatcher(
             }
             val measured = whole ?: frame
             val measuredColor = if (whole != null) screenColor else color
-            val paints = (if (targets.isEmpty()) emptyList() else TextPainter.paints(targets, measured, measuredColor)).map { paint ->
+            val measuredPaints = (if (targets.isEmpty()) emptyList() else TextPainter.paints(targets, measured, measuredColor)).map { paint ->
                 // Kişi resmi (ikiz panelde gösterilir) ölçülen kareden, karedeki yere taşınmadan önce kesilir.
                 val face = paint.portrait ?: return@map paint
                 paint.copy(portraitImage = TextPainter.portraitImage(face, measured.width, measured.height,
                     measuredColor ?: { x, y -> measured.at(x, y).let { (it shl 16) or (it shl 8) or it } }))
             }
+            // Menüde biçim ayardan gelir, her okumada yeniden seçilmez (#1365): üstünü ört ya da yanına yaz.
+            val paints = if (menuCover != null && measuredPaints.size == targets.size) {
+                val cardParts = painted.indices.filter { blocks[painted[it]].cardNo >= 0 }
+                    .groupBy { blocks[painted[it]].cardNo }.toSortedMap().values.toList()
+                MenuLayout.locked(measuredPaints, targets, cardParts, menuCover, measured.width.toDouble() / maxOf(1, measured.height))
+            } else measuredPaints
             val aligned = styles.toMutableList()
             for ((k, i) in painted.withIndex()) {
                 if (k >= paints.size) continue
@@ -1167,6 +1176,8 @@ class RegionWatcher(
         val paint: TextPaint? = null,
         /** Haritanın görev kartının parçası ([MissionCard]): çizim kipi hep örtme. */
         val card: Boolean = false,
+        /** Kartın sırası (aynı karttaki parçalar aynı sayıda; menüde ikiz kart kart başına kurulur, [MenuLayout]); -1: kart değil. */
+        val cardNo: Int = -1,
         /**
          * Görev/hedef satırının bloğu ([MissionLine.AREA_ID]): çevirisi altyazıdan ayrı görünüşte ([MissionLine.STYLE],
          * başında [MissionLine.MARKER]).
@@ -1350,6 +1361,12 @@ class RegionWatcher(
 
     /** Bu tür ekran yazısı çevrilir mi (Ayarlar'daki türler, [ScreenTextKinds]); varsayılan hepsi. */
     @Volatile var allows: (ScreenTextKind) -> Boolean = { true }
+
+    /**
+     * Menüde İngilizcenin üstü örtülür mü (Ayarlar › Ekran yazıları › "Menülerde İngilizcenin üstünü ört",
+     * `AppSettings.screenTextMenuCover`; [MenuLayout]): false (varsayılan) Türkçe yanına, koyu etikete yazılır.
+     */
+    @Volatile var menuCovers: () -> Boolean = { false }
 
     /** Ayarlar'da kapalı türün alanı (menü, hazır yardım/mesaj alanı, görev satırı) okunmaz; kutusu kalkar. */
     private fun wanted(area: ExtraArea): Boolean = ScreenTextKind.reads(area, allows)
@@ -1616,7 +1633,8 @@ class RegionWatcher(
             }
             val plain = candidate
             candidate = timing.measure(STAGE_PAINT) { styled(plain, text, area.region, crop.frame, crop.color, modes = true,
-                kind = ScreenTextKind.of(area), screen = crop.screen, screenColor = crop.screenColor) }.copy(auto = true)
+                kind = ScreenTextKind.of(area), screen = crop.screen, screenColor = crop.screenColor,
+                menuCover = if (area.menu) menuCovers() else null) }.copy(auto = true)
         } else {
             // Oyunun hazır alanı ve kullanıcının alanı otomatik alan gibi özgün stilinde, her grup kendi bloğunda, çizim
             // kipiyle çizilir (siyah kutu değil, #856; tuş simgesini örtmez, yazı boyu sabit, #1324).

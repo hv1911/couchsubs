@@ -282,6 +282,9 @@ public final class RegionWatcher {
     private let phoneTrace: DropLog
     /// Bu tür ekran yazısı çevrilir mi (Ayarlar'daki türler, `UserSettings.screenTextAllows`); varsayılan hepsi.
     public var allows: (ScreenTextKind) -> Bool = { _ in true }
+    /// Menüde İngilizcenin üstü örtülür mü (Ayarlar › Ekran yazıları › "Menülerde İngilizcenin üstünü ört",
+    /// `UserSettings.screenTextMenuCover`; `MenuLayout`): false (varsayılan) Türkçe yanına, koyu etikete yazılır.
+    public var menuCovers: () -> Bool = { false }
     /// Altyazı hattının son satırları ve alanı (bkz. `SubtitleEcho`); uygulama `SubtitleEcho.shared` verir.
     public var subtitleEcho: SubtitleEcho?
     /// Otomatik alan okundu ama yazı yok ya da gürültü (`ScreenTextNoise`): alanın kimliği (`ScreenTextDetector.reject`).
@@ -499,7 +502,8 @@ public final class RegionWatcher {
         // üstünü örtüyor, yazı boyu her okumada alanın kutusuna göre değişiyordu. Windows ve Android aynı.
         let painting = DispatchTime.now().uptimeNanoseconds
         let candidate = Self.candidate(own, in: region, frame: crop, auto: area.auto, menu: area.menu,
-                                       styled: true, kind: ScreenTextKind.of(area), screen: screen)
+                                       styled: true, kind: ScreenTextKind.of(area), screen: screen,
+                                       menuCover: area.auto && area.menu ? menuCovers() : nil)
         timing.add(Self.stagePaint, nanoseconds: Int64(DispatchTime.now().uptimeNanoseconds - painting))
         if candidate.unsure != state.unsureLogged {
             state.unsureLogged = candidate.unsure
@@ -759,9 +763,11 @@ public final class RegionWatcher {
     /// sayaç ("12:00 pm") çevrilmez. Önceden hazır alanın çevirisi tek siyah kutuda görev resminin de üstünü örtüyordu (#856).
     /// `kind`: alanın yerinden belli türü (`ScreenTextKind.of(area)`); otomatik alanda grupların çizim kipini seçer.
     /// `screen`: bütün kare (verilirse çizim kipi ve boş alan onda ölçülür; `frame` yalnız okunan alandır).
+    /// `menuCover`: menüdeki otomatik alanın biçimi (`MenuLayout`; true: üstünü ört, false: yanına yaz); nil: her yazının
+    /// kipini `TextPainter` seçer.
     static func candidate(_ reading: Reading, in region: CropRegion, frame: CGImage? = nil, auto: Bool = false,
                           menu: Bool = false, styled: Bool = false, kind: ScreenTextKind? = nil,
-                          screen: ScreenFrame? = nil) -> Candidate {
+                          screen: ScreenFrame? = nil, menuCover: Bool? = nil) -> Candidate {
         let styled = auto || styled
         // Otomatik alanda (menü, kontrol şeması) tuşlu etiketler ("HOLSTER (L1)", "SELECT (✕)") yazının kendisidir, atılmaz.
         let marked = reading.withButtonIcons(frame: frame, monochrome: auto)
@@ -878,6 +884,17 @@ public final class RegionWatcher {
                 var paints = pixels.map { TextPainter.paints(targets, pixels: $0) } ?? []
                 for k in paints.indices {
                     if let face = paints[k].portrait, let pixels { paints[k].portraitImage = TextPainter.portraitImage(face, pixels: pixels) }
+                }
+                // Menüde biçim ayardan gelir, her okumada yeniden seçilmez (#1365): üstünü ört ya da yanına yaz.
+                if auto && menu, let cover = menuCover, paints.count == targets.count {
+                    let cardParts = cards.map { card in
+                        painted.indices.filter { k in
+                            card.all.contains { lines[$0].box.map { inside($0, groups[painted[k]].box) } ?? false }
+                        }
+                    }.filter { !$0.isEmpty }
+                    let shape = whole.map { Double($0.image.width) / Double(max(1, $0.image.height)) }
+                        ?? Double(frame.width) / Double(max(1, frame.height))
+                    paints = MenuLayout.locked(paints, targets: targets, cards: cardParts, cover: cover, aspect: shape)
                 }
                 for (k, i) in painted.enumerated() where k < paints.count {
                     list[i].paint = whole == nil ? paints[k].placed(in: place) : paints[k]

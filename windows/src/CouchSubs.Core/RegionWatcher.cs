@@ -266,6 +266,12 @@ public sealed partial class RegionWatcher
     /// Bu tür ekran yazısı çevrilir mi (Ayarlar'daki türler, <see cref="ScreenTextKind"/>); verilmezse hepsi.
     /// </summary>
     public Func<ScreenTextKind, bool>? Allows { get; set; }
+    /// <summary>
+    /// Menüde İngilizcenin üstü örtülür mü (Ayarlar › Ekran yazıları › "Menülerde İngilizcenin üstünü ört",
+    /// <c>UserSettings.ScreenTextMenuCover</c>; <see cref="MenuLayout"/>); verilmezse ya da false: Türkçe yanına, koyu
+    /// etikete yazılır.
+    /// </summary>
+    public Func<bool>? MenuCovers { get; set; }
     /// <summary>Otomatik alan okundu ama yazı yok ya da gürültü (<see cref="ScreenTextNoise"/>): alanın kimliği.</summary>
     public Action<string>? Rejected { get; set; }
     /// <summary>
@@ -917,7 +923,8 @@ public sealed partial class RegionWatcher
         // üstünü örtüyor, yazı boyu her okumada alanın kutusuna göre değişiyordu. Mac ve Android aynı.
         var paintBegun = System.Diagnostics.Stopwatch.GetTimestamp();
         var made = MakeCandidate(reading, area.Region, image, SplitsMenuRows(Game?.Invoke()), auto: area.Auto, menu: area.Menu,
-                                 styled: true, kind: ScreenTextKinds.Of(area), screen: frame);
+                                 styled: true, kind: ScreenTextKinds.Of(area), screen: frame,
+                                 menuCover: area.Auto && area.Menu ? MenuCovers?.Invoke() ?? false : null);
         Timing.Add(StagePaint, System.Diagnostics.Stopwatch.GetElapsedTime(paintBegun));
         return made;
     }
@@ -993,7 +1000,7 @@ public sealed partial class RegionWatcher
     /// alandır; #1339).</param>
     internal static Candidate MakeCandidate(Reading reading, CropRegion region, Frame? frame = null, bool menuRows = false, bool phone = false,
                                             bool auto = false, bool menu = false, bool styled = false, ScreenTextKind? kind = null,
-                                            Frame? screen = null)
+                                            Frame? screen = null, bool? menuCover = null)
     {
         styled = (auto || styled) && !phone;
         var marked = frame is null || phone ? reading.WithButtonIcons() : reading.WithButtonIcons(frame, monochrome: auto);
@@ -1106,6 +1113,15 @@ public sealed partial class RegionWatcher
                 var paints = TextPainter.Paints(targets, measured)
                     .Select(paint => paint.Portrait is { } face ? paint with { PortraitImage = TextPainter.PortraitImage(face, measured) } : paint)
                     .ToList();
+                // Menüde biçim ayardan gelir, her okumada yeniden seçilmez (#1365): üstünü ört ya da yanına yaz.
+                if (auto && menu && menuCover is { } coversMenus && paints.Count == targets.Count)
+                {
+                    var cardParts = cards
+                        .Select(card => (IReadOnlyList<int>)Enumerable.Range(0, painted.Count)
+                            .Where(k => card.All.Any(n => lines[n].Box is { } b && Inside(b, groups[painted[k]].Box))).ToList())
+                        .Where(parts => parts.Count > 0).ToList();
+                    paints = MenuLayout.Locked(paints, targets, cardParts, coversMenus, (double)measured.Width / Math.Max(1, measured.Height));
+                }
                 for (var k = 0; k < painted.Count && k < paints.Count; k++)
                 {
                     var block = list[painted[k]] with { Paint = screen is null ? paints[k].PlacedIn(place) : paints[k] };
