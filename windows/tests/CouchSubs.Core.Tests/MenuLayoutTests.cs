@@ -174,6 +174,63 @@ public class MenuLayoutTests
         Assert.False(SubtitleServer.ItemJson(Item(MenuLayout.Plain(paint)), phone: false).ContainsKey("label"));
     }
 
+    /// <summary>
+    /// Menüde biçim ayardan gelince satırın saklı kipi (<see cref="RegionWatcher.SteadyPaints"/>, menuCover): ayar değişince eski
+    /// biçim kalmaz, A'da bir kez örtülen satır örtülü kalmaz, kart ikizi harita düzeninde kalır, menü dışı okumanın kipi menüye
+    /// geçmez. Ortak deneme dosyası menu-steady.json (Mac, Android aynı).
+    /// </summary>
+    [Fact]
+    public void MenuRowPaintFollowsTheSetting()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(PackFixtures.Path("menu-steady.json")));
+        foreach (var sequence in document.RootElement.GetProperty("sequences").EnumerateArray())
+        {
+            var name = sequence.GetProperty("name").GetString();
+            var memory = new Dictionary<string, RegionWatcher.RowPaint>();
+            var index = 0;
+            foreach (var read in sequence.GetProperty("reads").EnumerateArray())
+            {
+                var setting = read.GetProperty("menuCover");
+                bool? menuCover = setting.ValueKind == JsonValueKind.Null ? null : setting.GetBoolean();
+                var rows = read.GetProperty("rows").EnumerateArray().ToList();
+                var blocks = rows.Select((row, i) => new RegionWatcher.Block(i, 1, Box(row.GetProperty("box")), 0.04)
+                {
+                    Paint = SteadyPaint(row.GetProperty("mode").GetString()!, Box(row.GetProperty("box"))),
+                }).ToList();
+                var output = RegionWatcher.SteadyPaints(blocks, [.. rows.Select(row => row.GetProperty("text").GetString()!)], memory,
+                                                        read.GetProperty("map").GetBoolean(), menuCover);
+                var expected = read.GetProperty("expected").EnumerateArray().Select(e => e.GetString()).ToList();
+                for (var k = 0; k < rows.Count; k++)
+                {
+                    Assert.True(output[k].Paint?.Mode == expected[k], $"{name} okuma {index}: {rows[k].GetProperty("text").GetString()} ({output[k].Paint?.Mode})");
+                    // Taşınan ölçü satırın yeni yerindedir.
+                    Assert.True(Math.Abs(output[k].Paint!.Cover.Top - Box(rows[k].GetProperty("box")).Top) < 1e-9, $"{name} okuma {index}");
+                }
+                index++;
+            }
+        }
+    }
+
+    private static TextPaint SteadyPaint(string mode, TextBox box)
+    {
+        var paint = new TextPaint("#202020", box.Bottom - box.Top, box);
+        double width = box.Right - box.Left, height = box.Bottom - box.Top;
+        return mode switch
+        {
+            "beside" => paint with
+            {
+                Mode = PaintMode.Beside, Spot = new TextBox(box.Right + 0.01, box.Top, box.Right + 0.01 + width, box.Bottom),
+                SpotRoom = new TextBox(box.Right + 0.01, box.Top, box.Right + 0.01 + width, box.Bottom), Label = MenuLayout.LabelColor,
+            },
+            "twin" => paint with
+            {
+                Mode = PaintMode.Twin, Twin = new TextBox(box.Left, box.Bottom + 0.01, box.Right, box.Bottom + 0.01 + height),
+                Spot = new TextBox(box.Left, box.Bottom + 0.01, box.Right, box.Bottom + 0.01 + height),
+            },
+            _ => paint with { Mode = PaintMode.Cover },
+        };
+    }
+
     private static ScreenTranslation.Item Item(TextPaint paint) =>
         new("Menu", "Menü", paint.Cover, 0.04)
         {

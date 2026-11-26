@@ -406,14 +406,15 @@ private fun ExactBlocks(items: List<com.couchsubs.mobile.core.ScreenTranslation.
                     else android.graphics.LinearGradient(left, top, right, top, first, second, android.graphics.Shader.TileMode.CLAMP)
                 } else fill.color = first
                 if (covering) native.drawRect(left, top, right, bottom, fill)
-                // Menüde yanına yazılan Türkçenin etiketi (TextPaint.label, MenuLayout; TV 0.9.123 ile aynı): koyu, yarı saydam,
+                // Menüde yanına yazılan Türkçenin etiketi (TextPaint.label, MenuLayout; TV 0.9.124 ile aynı): koyu, yarı saydam,
                 // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve kontursuz.
                 val marked = if (!covering && paint.mode == com.couchsubs.mobile.core.TextPaint.MODE_BESIDE) parse(paint.label) else null
-                // Seçili (ters renkli: açık zemin, koyu yazı) satırın etiketi de ters renkli (TV ile aynı).
-                fun light(c: Int) = 0.299 * android.graphics.Color.red(c) + 0.587 * android.graphics.Color.green(c) +
-                    0.114 * android.graphics.Color.blue(c) > 160
+                // Seçili (ters renkli: açık zemin, koyu ve zeminden belirgin biçimde ayrışan yazı) satırın etiketi de ters renkli
+                // (TV labelSelected ile aynı).
+                fun luma(c: Int) = 0.299 * android.graphics.Color.red(c) + 0.587 * android.graphics.Color.green(c) +
+                    0.114 * android.graphics.Color.blue(c)
                 val ink = parse(item.surface?.foreground) ?: android.graphics.Color.WHITE
-                val selected = marked != null && light(first) && !light(ink)
+                val selected = marked != null && luma(first) > 160 && luma(ink) <= 160 && luma(first) - luma(ink) >= 80
                 val label = if (selected) first else marked
                 val text = paintFor(item.look?.bold == true, condensed(item), p.fontSize).apply {
                     val r = android.graphics.Color.red(ink)

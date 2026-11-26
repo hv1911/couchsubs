@@ -213,7 +213,7 @@ test('tek satırlık istemin dev ikizi yazının çevresine kırpılır; aynı s
   assert.ok(Math.abs(panel.top - (800 - 4)) <= 1 && panel.bottom > 960, 'bildirim ikizi değişmez: ' + panel.top + '-' + panel.bottom);
 });
 
-// Menüde "yanına yaz" (TV 0.9.123, bilgisayar MenuLayout, #1365): beta.105'te haritanın üstüne zeminsiz yazılan Türkçe
+// Menüde "yanına yaz" (TV 0.9.124, bilgisayar MenuLayout, #1365): beta.105'te haritanın üstüne zeminsiz yazılan Türkçe
 // desenli zeminde okunmuyordu. label gelince Türkçe koyu, yarı saydam, yuvarlak köşeli etikette, açık renkle ve kontursuz
 // yazılır; özgün yazı açık kalır, etiket (öğenin ilk çocuğu) yazıyı sarar ve çevresine payla taşar. Özgün yazı açık renkse
 // (gri liste, sarı vurgu) o renk kalır, koyuysa açık gri olur; seçili (ters renkli) satırın etiketi de ters renkli.
@@ -255,7 +255,27 @@ test('menüde yanına yazılan Türkçe koyu etikette, açık renkle; seçili sa
   }
 });
 
-// Menüdeki görev kartının ikizi (TV 0.9.123, bilgisayar MenuLayout, #1365): kartın kişi resmi ikizde de köşeli kare
+// Etiket kenarları (TV 0.9.124): satırdaki kumanda simgesi de etiketin içinde kalır; sıkışık listede alt alta etiketler
+// birbirine binmez; zemine yakın tonda yazı (açık gri zeminde orta gri) seçili sayılıp ters çevrilmez.
+test('etiket simgeyi de sarar, sıkışık listede etiketler binmez, yakın tonlar ters çevrilmez', { skip: !browser && 'tarayıcı yok' }, () => {
+  const row = (text, top, bg, fg, extra) => Object.assign({ text, box: px(100, top, 400, top + 36), line: 36 / H, lineH: 36 / H,
+    cover: px(98, top, 402, top + 36), bg, bgPat: true, fg, weight: 400, upper: false, align: 'left',
+    mode: 'beside', spot: px(420, top, 900, top + 36), spotRoom: px(420, top, 1100, top + 36), label: '#121419',
+    surface: { background: bg, foreground: fg, flat: false }, style: { align: 'left', bold: false, condensed: true, upper: false } }, extra);
+  const drawn = render([row('Seçmek için  bas', 300, '#2A2E33', '#5A5F66', { icons: [{ at: 12, src: PNG }] }),
+    row('Haritayı Ortala', 600, '#2A2E33', '#5A5F66'), row('Hedef Belirle', 636, '#2A2E33', '#5A5F66'),
+    row('Çık', 800, '#E0E0E0', '#9C9C9C')]);
+  const icon = drawn.find(el => el.text.indexOf('Seçmek') === 0);
+  const textRight = Math.max.apply(null, icon.lines.map(l => l.right));
+  assert.ok(icon.img, 'simge çizildi');
+  assert.ok(icon.right >= textRight - 1 && icon.chip.right >= textRight, 'etiket simgeli satırı sarar: ' + icon.right + ' ' + textRight);
+  const upper = drawn.find(el => el.text === 'Haritayı Ortala'), lower = drawn.find(el => el.text === 'Hedef Belirle');
+  assert.ok(upper.chip.bottom <= lower.chip.top + 0.5, 'alt alta etiketler binmez: ' + upper.chip.bottom + ' ' + lower.chip.top);
+  const near = drawn.find(el => el.text === 'Çık');
+  assert.equal(near.chip.bg, 'rgba(18, 20, 25, 0.86)', 'yakın tonlu satır ters çevrilmez: ' + near.chip.bg);
+});
+
+// Menüdeki görev kartının ikizi (TV 0.9.124, bilgisayar MenuLayout, #1365): kartın kişi resmi ikizde de köşeli kare
 // (icon.square); telefon bildiriminin kişi resmi eskisi gibi yuvarlak.
 test('görev kartının ikizindeki resim köşeli kare, telefon bildiriminin resmi yuvarlak', { skip: !browser && 'tarayıcı yok' }, () => {
   const card = (square) => ({ text: 'ADA HAYALLERİ', box: px(372, 196, 662, 244), line: 48 / H, lineH: 48 / H,

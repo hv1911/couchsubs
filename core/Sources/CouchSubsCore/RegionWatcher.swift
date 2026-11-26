@@ -429,8 +429,6 @@ public final class RegionWatcher {
             ReadScheduler.changed($0, signature, threshold: ReadScheduler.defaultChangeThreshold)
         } ?? true) || state.menuCover != cover
         state.signature = signature
-        // Ayar değişince satırların saklı çizim kipi de unutulur: yoksa eski biçim (örn. örtü) `steadyPaints` ile kalırdı.
-        if let old = state.menuCover, let cover, old != cover { rowPaints.removeAll() }
         state.menuCover = cover
         guard changed else {
             // İz bir tur değişmedi: okunan yazı kararlıdır.
@@ -514,10 +512,9 @@ public final class RegionWatcher {
                                        styled: true, kind: ScreenTextKind.of(area), screen: screen, menuCover: cover)
         if let blocks = candidate.blocks {
             let before = blocks.map { $0.paint?.mode }
-            // Menüde biçim ayardan gelir (`MenuLayout`): görev kartının ikizi kartın hemen altında, harita düzeninde de çizilir
-            // (harita düzenindeki ikiz yasağı ölçümün haritada yüzen ikizleri içindir).
+            // Menüde biçim ayardan gelir (`MenuLayout`, `steadyPaints` menuCover): kip ayara göre saklanır.
             candidate.blocks = Self.steadyPaints(blocks, texts: Self.blockTexts(candidate).map(\.text), memory: &rowPaints,
-                                                 map: area.map && cover == nil)
+                                                 map: area.map, menuCover: cover)
             let kept = zip(before, candidate.blocks ?? []).filter { $0.0 != $0.1.paint?.mode }.count
             if kept > 0 { onLog?("ek alan \(area.name): \(kept) satırın çizim kipi korundu\(area.map ? " (harita düzeni)" : "")") }
         }
@@ -1602,24 +1599,32 @@ public final class RegionWatcher {
     ///   ölçüler satırın yeni yerine taşınır. Satır yana kaydıysa (`rowPaintShift`) eski ölçüler taşınamaz; satır örtülür ve
     ///   bundan sonra hep örtülür (kip en çok bir kez, örtüye döner).
     /// - `map`: harita düzeninde ikiz kutu çizilmez (haritanın üstünde yüzen kutular); ikiz seçilen blok örtülür.
+    /// - `menuCover`: menüde biçim ayardan gelir (`MenuLayout`; nil: menü dışı). Yerleşim yazıların kutularından çıkar ve aynı
+    ///   ekranda her okumada aynıdır: bir kez örtülen satır örtülü kalmaz (şeridin ve sütunun kuralı bozulmasın), harita
+    ///   düzeninin ikiz yasağı uygulanmaz (görev kartının ikizi kartın altına bitişik, haritada yüzmez). Saklı kip biçime göre
+    ///   ayrı tutulur: ayar değişince eski biçim kalmaz, menü dışı okumanın kipi menüye geçmez.
     /// Windows (RegionWatcher.SteadyPaints) ve Android (steadyPaints) aynı.
-    static func steadyPaints(_ blocks: [Block], texts: [String], memory: inout [String: RowPaint], map: Bool) -> [Block] {
+    static func steadyPaints(_ blocks: [Block], texts: [String], memory: inout [String: RowPaint], map: Bool,
+                             menuCover: Bool? = nil) -> [Block] {
+        let locked = menuCover != nil
+        let scope = menuCover.map { $0 ? "B\u{1F}" : "A\u{1F}" } ?? ""
         var result = blocks
         var seen = Set<String>()
         for i in result.indices {
             guard var paint = result[i].paint else { continue }
-            if map, paint.mode == .twin { paint = coverOnly(paint) }
-            let key = i < texts.count ? textKey([IconText.plain(texts[i])]) : ""
-            guard !key.isEmpty else {
+            if map, !locked, paint.mode == .twin { paint = coverOnly(paint) }
+            let text = i < texts.count ? textKey([IconText.plain(texts[i])]) : ""
+            guard !text.isEmpty else {
                 result[i].paint = paint
                 continue
             }
+            let key = scope + text
             seen.insert(key)
             let box = result[i].box
             if let kept = memory[key], kept.mode != paint.mode {
                 let dx = box.left - kept.box.left, dy = box.top - kept.box.top
                 if kept.mode == .cover || abs(dx) > rowPaintShift {
-                    paint = coverOnly(paint)
+                    if !locked { paint = coverOnly(paint) }
                 } else {
                     paint = shifted(kept.paint, dx: dx, dy: dy)
                 }

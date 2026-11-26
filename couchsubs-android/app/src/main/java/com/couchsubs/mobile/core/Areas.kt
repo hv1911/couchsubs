@@ -988,23 +988,31 @@ class RegionWatcher(
          *   ölçüler satırın yeni yerine taşınır. Satır yana kaydıysa ([ROW_PAINT_SHIFT]) eski ölçüler taşınamaz; satır örtülür
          *   ve bundan sonra hep örtülür (kip en çok bir kez, örtüye döner).
          * - [map]: harita düzeninde ikiz kutu çizilmez (haritanın üstünde yüzen kutular); ikiz seçilen blok örtülür.
+         * - [menuCover]: menüde biçim ayardan gelir ([MenuLayout]; null: menü dışı). Yerleşim yazıların kutularından çıkar ve
+         *   aynı ekranda her okumada aynıdır: bir kez örtülen satır örtülü kalmaz (şeridin ve sütunun kuralı bozulmasın), harita
+         *   düzeninin ikiz yasağı uygulanmaz (görev kartının ikizi kartın altına bitişik, haritada yüzmez). Saklı kip biçime
+         *   göre ayrı tutulur: ayar değişince eski biçim kalmaz, menü dışı okumanın kipi menüye geçmez.
          * Mac/iPhone (RegionWatcher.steadyPaints) ve Windows (RegionWatcher.SteadyPaints) aynı.
          */
-        internal fun steadyPaints(blocks: List<Block>, texts: List<String>, memory: MutableMap<String, RowPaint>, map: Boolean): List<Block> {
+        internal fun steadyPaints(blocks: List<Block>, texts: List<String>, memory: MutableMap<String, RowPaint>, map: Boolean,
+                                  menuCover: Boolean? = null): List<Block> {
+            val locked = menuCover != null
+            val scope = when (menuCover) { null -> ""; true -> "B\u001F"; false -> "A\u001F" }
             val seen = HashSet<String>()
             val result = blocks.mapIndexed { i, block ->
                 var paint = block.paint ?: return@mapIndexed block
-                if (map && paint.mode == TextPaint.MODE_TWIN) paint = coverOnly(paint)
-                val key = if (i < texts.size) textKey(listOf(IconText.plain(texts[i]))) else ""
-                if (key.isEmpty()) return@mapIndexed block.copy(paint = paint)
+                if (map && !locked && paint.mode == TextPaint.MODE_TWIN) paint = coverOnly(paint)
+                val text = if (i < texts.size) textKey(listOf(IconText.plain(texts[i]))) else ""
+                if (text.isEmpty()) return@mapIndexed block.copy(paint = paint)
+                val key = scope + text
                 seen.add(key)
                 val box = block.box
                 val kept = memory[key]
                 if (kept != null && kept.mode != paint.mode) {
                     val dx = box.left - kept.box.left
                     val dy = box.top - kept.box.top
-                    paint = if (kept.mode == TextPaint.MODE_COVER || kotlin.math.abs(dx) > ROW_PAINT_SHIFT) coverOnly(paint)
-                        else shifted(kept.paint, dx, dy)
+                    if (kept.mode != TextPaint.MODE_COVER && kotlin.math.abs(dx) <= ROW_PAINT_SHIFT) paint = shifted(kept.paint, dx, dy)
+                    else if (!locked) paint = coverOnly(paint)
                 }
                 memory[key] = RowPaint(paint.mode, paint, box)
                 block.copy(paint = paint)
@@ -1596,9 +1604,6 @@ class RegionWatcher(
         val cover = if (area.auto && area.menu) menuCovers() else null
         val changed = (state.signature?.let { RegionSignature.changed(it, crop.signature) } ?: true) || state.menuCover != cover
         state.signature = crop.signature
-        // Ayar değişince satırların saklı çizim kipi de unutulur: yoksa eski biçim (örn. örtü) [steadyPaints] ile kalırdı.
-        val was = state.menuCover
-        if (was != null && cover != null && was != cover) synchronized(rowPaints) { rowPaints.clear() }
         state.menuCover = cover
         val before = state.passSignature
         state.passSignature = crop.signature
@@ -1739,11 +1744,10 @@ class RegionWatcher(
                 kind = ScreenTextKind.of(area), screen = crop.screen, screenColor = crop.screenColor) }
         }
         // Satırın çizim kipi bir kez seçilir ([steadyPaints]); harita düzeninde ikiz kutu yok. Menüde biçim ayardan gelir
-        // ([MenuLayout]): görev kartının ikizi kartın hemen altında, harita düzeninde de çizilir (harita düzenindeki ikiz
-        // yasağı ölçümün haritada yüzen ikizleri içindir).
+        // ([MenuLayout], [steadyPaints] menuCover): kip ayara göre saklanır.
         candidate.blocks?.let { blocks ->
             val steady = synchronized(rowPaints) {
-                steadyPaints(blocks, blockTexts(candidate).map { it.second }, rowPaints, area.map && cover == null)
+                steadyPaints(blocks, blockTexts(candidate).map { it.second }, rowPaints, area.map, cover)
             }
             val kept = blocks.zip(steady).count { (a, b) -> a.paint?.mode != b.paint?.mode }
             candidate = candidate.copy(blocks = steady)

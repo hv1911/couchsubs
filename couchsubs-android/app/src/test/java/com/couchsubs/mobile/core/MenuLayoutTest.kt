@@ -146,4 +146,53 @@ class MenuLayoutTest {
         MenuLayout.locked(listOf(row, title, body), listTargets, listOf(listOf(1, 2)), false, 1.0) { _, _ -> asked++; null }
         assertEquals(1, asked)
     }
+
+    /**
+     * Menüde biçim ayardan gelince satırın saklı kipi ([RegionWatcher.steadyPaints], menuCover): ayar değişince eski biçim
+     * kalmaz, A'da bir kez örtülen satır örtülü kalmaz, kart ikizi harita düzeninde kalır, menü dışı okumanın kipi menüye
+     * geçmez. Ortak deneme dosyası fixtures/menu-steady.json (Mac, Windows aynı).
+     */
+    @Test
+    fun menuRowPaintFollowsTheSetting() {
+        val sequences = JSONObject(Fixtures.text("menu-steady.json")).getJSONArray("sequences")
+        for (s in 0 until sequences.length()) {
+            val sequence = sequences.getJSONObject(s)
+            val name = sequence.getString("name")
+            val reads = sequence.getJSONArray("reads")
+            val memory = HashMap<String, RegionWatcher.RowPaint>()
+            for (index in 0 until reads.length()) {
+                val read = reads.getJSONObject(index)
+                val menuCover = if (read.isNull("menuCover")) null else read.getBoolean("menuCover")
+                val rows = read.getJSONArray("rows").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+                val blocks = rows.mapIndexed { i, row ->
+                    val b = row.getJSONArray("box").let { TextBox(it.getDouble(0), it.getDouble(1), it.getDouble(2), it.getDouble(3)) }
+                    RegionWatcher.Block(i, 1, b, 0.04, paint = steadyPaint(row.getString("mode"), b))
+                }
+                val out = RegionWatcher.steadyPaints(blocks, rows.map { it.getString("text") }, memory, read.getBoolean("map"), menuCover)
+                val expected = read.getJSONArray("expected")
+                for (k in rows.indices) {
+                    assertEquals("$name okuma $index: ${rows[k].getString("text")}", expected.getString(k), out[k].paint?.mode)
+                    // Taşınan ölçü satırın yeni yerindedir.
+                    assertEquals("$name okuma $index", rows[k].getJSONArray("box").getDouble(1), out[k].paint!!.cover.top, 1e-9)
+                }
+            }
+        }
+    }
+
+    private fun steadyPaint(mode: String, box: TextBox): TextPaint {
+        val paint = TextPaint(background = "#202020", pitch = box.bottom - box.top, cover = box)
+        val width = box.right - box.left
+        val height = box.bottom - box.top
+        return when (mode) {
+            "beside" -> {
+                val spot = TextBox(box.right + 0.01, box.top, box.right + 0.01 + width, box.bottom)
+                paint.copy(mode = TextPaint.MODE_BESIDE, spot = spot, spotRoom = spot, label = MenuLayout.LABEL_COLOR)
+            }
+            "twin" -> {
+                val twin = TextBox(box.left, box.bottom + 0.01, box.right, box.bottom + 0.01 + height)
+                paint.copy(mode = TextPaint.MODE_TWIN, twin = twin, spot = twin)
+            }
+            else -> paint.copy(mode = TextPaint.MODE_COVER)
+        }
+    }
 }

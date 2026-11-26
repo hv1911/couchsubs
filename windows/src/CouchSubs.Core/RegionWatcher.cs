@@ -563,8 +563,6 @@ public sealed partial class RegionWatcher
         // Menüde biçim ayarı (üstünü ört / yanına yaz) değişince görüntü durgun olsa da yeniden okunur ve çizilir.
         bool? cover = area.Auto && area.Menu ? MenuCovers?.Invoke() ?? false : null;
         var changed = PixelsChanged(state, crop, signature) || state.MenuCover != cover;
-        // Ayar değişince satırların saklı çizim kipi de unutulur: yoksa eski biçim (örn. örtü) SteadyPaints ile kalırdı.
-        if (state.MenuCover is { } was && cover is { } wanted && was != wanted) lock (rowPaints) rowPaints.Clear();
         state.MenuCover = cover;
         // Örneklerin arasına düşen ya da eski satır kutusunun dışında beliren bir yazıyı da yakala.
         // Birebir aynı görüntüde süre dolsa bile OCR çalışmaz.
@@ -939,15 +937,15 @@ public sealed partial class RegionWatcher
         // özgün stilinde, grup grup ve çizim kipiyle (yanına yazma, ikiz kutu) çizilir: önceden tek kutu tuş simgelerinin
         // üstünü örtüyor, yazı boyu her okumada alanın kutusuna göre değişiyordu. Mac ve Android aynı.
         var paintBegun = System.Diagnostics.Stopwatch.GetTimestamp();
-        bool? menuCover = area.Auto && area.Menu ? MenuCovers?.Invoke() ?? false : null;
+        // Turun başında okunan menü biçimi (ayar OCR sürerken değişse de tur tek biçimle çizilir).
+        var menuCover = state.MenuCover;
         var made = MakeCandidate(reading, area.Region, image, SplitsMenuRows(Game?.Invoke()), auto: area.Auto, menu: area.Menu,
                                  styled: true, kind: ScreenTextKinds.Of(area), screen: frame, menuCover: menuCover);
         if (made.Blocks is { } blocks)
         {
-            // Menüde biçim ayardan gelir (MenuLayout): görev kartının ikizi kartın hemen altında, harita düzeninde de çizilir
-            // (harita düzenindeki ikiz yasağı ölçümün haritada yüzen ikizleri içindir).
+            // Menüde biçim ayardan gelir (MenuLayout, SteadyPaints menuCover): kip ayara göre saklanır.
             IReadOnlyList<Block> steady;
-            lock (rowPaints) steady = SteadyPaints(blocks, [.. BlockTexts(made).Select(row => row.Text)], rowPaints, area.Map && menuCover is null);
+            lock (rowPaints) steady = SteadyPaints(blocks, [.. BlockTexts(made).Select(row => row.Text)], rowPaints, area.Map, menuCover);
             var kept = blocks.Zip(steady).Count(pair => pair.First.Paint?.Mode != pair.Second.Paint?.Mode);
             made = made with { Blocks = steady };
             if (kept > 0) Log?.Invoke($"ek alan {area.Name}: {kept} satırın çizim kipi korundu{(area.Map ? " (harita düzeni)" : "")}");
@@ -1938,30 +1936,39 @@ public sealed partial class RegionWatcher
     /// örtülür ve bundan sonra hep örtülür (kip en çok bir kez, örtüye döner).</item>
     /// <item><paramref name="map"/>: harita düzeninde ikiz kutu çizilmez (haritanın üstünde yüzen kutular); ikiz seçilen blok
     /// örtülür.</item>
+    /// <item><paramref name="menuCover"/>: menüde biçim ayardan gelir (<see cref="MenuLayout"/>; null: menü dışı). Yerleşim
+    /// yazıların kutularından çıkar ve aynı ekranda her okumada aynıdır: bir kez örtülen satır örtülü kalmaz (şeridin ve
+    /// sütunun kuralı bozulmasın), harita düzeninin ikiz yasağı uygulanmaz (görev kartının ikizi kartın altına bitişik,
+    /// haritada yüzmez). Saklı kip biçime göre ayrı tutulur: ayar değişince eski biçim kalmaz, menü dışı okumanın kipi
+    /// menüye geçmez.</item>
     /// </list>
     /// Mac (RegionWatcher.steadyPaints) ve Android (steadyPaints) aynı.
     /// </summary>
     internal static IReadOnlyList<Block> SteadyPaints(IReadOnlyList<Block> blocks, IReadOnlyList<string> texts,
-                                                      Dictionary<string, RowPaint> memory, bool map)
+                                                      Dictionary<string, RowPaint> memory, bool map, bool? menuCover = null)
     {
+        var locked = menuCover is not null;
+        var scope = menuCover switch { true => "B\u001F", false => "A\u001F", null => "" };
         var result = blocks.ToList();
         var seen = new HashSet<string>();
         for (var i = 0; i < result.Count; i++)
         {
             if (result[i].Paint is not { } paint) continue;
-            if (map && paint.Mode == PaintMode.Twin) paint = CoverOnly(paint);
-            var key = i < texts.Count ? TextKey([IconText.Plain(texts[i])]) : "";
-            if (key.Length == 0)
+            if (map && !locked && paint.Mode == PaintMode.Twin) paint = CoverOnly(paint);
+            var text = i < texts.Count ? TextKey([IconText.Plain(texts[i])]) : "";
+            if (text.Length == 0)
             {
                 result[i] = result[i] with { Paint = paint };
                 continue;
             }
+            var key = scope + text;
             seen.Add(key);
             var box = result[i].Box;
             if (memory.TryGetValue(key, out var kept) && kept.Mode != paint.Mode)
             {
                 double dx = box.Left - kept.Box.Left, dy = box.Top - kept.Box.Top;
-                paint = kept.Mode == PaintMode.Cover || Math.Abs(dx) > RowPaintShift ? CoverOnly(paint) : Shifted(kept.Paint, dx, dy);
+                if (kept.Mode != PaintMode.Cover && Math.Abs(dx) <= RowPaintShift) paint = Shifted(kept.Paint, dx, dy);
+                else if (!locked) paint = CoverOnly(paint);
             }
             memory[key] = new RowPaint(paint.Mode, paint, box);
             result[i] = result[i] with { Paint = paint };

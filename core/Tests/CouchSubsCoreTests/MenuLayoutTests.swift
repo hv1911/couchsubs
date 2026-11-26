@@ -165,4 +165,54 @@ final class MenuLayoutTests: XCTestCase {
         }
         XCTAssertEqual(asked, 1)
     }
+
+    private struct SteadyFixture: Decodable {
+        struct Row: Decodable { let text: String; let box: [Double]; let mode: String }
+        struct Read: Decodable { let menuCover: Bool?; let map: Bool; let rows: [Row]; let expected: [String] }
+        struct Run: Decodable { let name: String; let reads: [Read] }
+        let sequences: [Run]
+    }
+
+    /// Menüde biçim ayardan gelince satırın saklı kipi (`RegionWatcher.steadyPaints`, menuCover): ayar değişince eski biçim
+    /// kalmaz, A'da bir kez örtülen satır örtülü kalmaz, kart ikizi harita düzeninde kalır, menü dışı okumanın kipi menüye
+    /// geçmez. Ortak deneme dosyası Fixtures/menu-steady.json (Windows, Android aynı).
+    func testMenuRowPaintFollowsTheSetting() throws {
+        let url = Bundle.module.url(forResource: "Fixtures", withExtension: nil)!.appendingPathComponent("menu-steady.json")
+        let fixture = try JSONDecoder().decode(SteadyFixture.self, from: Data(contentsOf: url))
+        for sequence in fixture.sequences {
+            var memory: [String: RegionWatcher.RowPaint] = [:]
+            for (index, read) in sequence.reads.enumerated() {
+                let blocks = read.rows.enumerated().map { i, row -> RegionWatcher.Block in
+                    let box = TextBox(left: row.box[0], top: row.box[1], right: row.box[2], bottom: row.box[3])
+                    return RegionWatcher.Block(start: i, count: 1, box: box, lineHeight: 0.04, paint: Self.steadyPaint(row.mode, box))
+                }
+                let out = RegionWatcher.steadyPaints(blocks, texts: read.rows.map(\.text), memory: &memory, map: read.map,
+                                                     menuCover: read.menuCover)
+                for (k, row) in read.rows.enumerated() {
+                    XCTAssertEqual(out[k].paint?.mode.rawValue, read.expected[k], "\(sequence.name) okuma \(index): \(row.text)")
+                    // Taşınan ölçü satırın yeni yerindedir.
+                    XCTAssertEqual(out[k].paint?.cover.top ?? -1, row.box[1], accuracy: 1e-9, "\(sequence.name) okuma \(index)")
+                }
+            }
+        }
+    }
+
+    private static func steadyPaint(_ mode: String, _ box: TextBox) -> TextPaint {
+        var paint = TextPaint(background: "#202020", pitch: box.bottom - box.top, cover: box)
+        let width = box.right - box.left, height = box.bottom - box.top
+        switch mode {
+        case "beside":
+            paint.mode = .beside
+            paint.spot = TextBox(left: box.right + 0.01, top: box.top, right: box.right + 0.01 + width, bottom: box.bottom)
+            paint.spotRoom = paint.spot
+            paint.label = MenuLayout.labelColor
+        case "twin":
+            paint.mode = .twin
+            paint.twin = TextBox(left: box.left, top: box.bottom + 0.01, right: box.right, bottom: box.bottom + 0.01 + height)
+            paint.spot = paint.twin
+        default:
+            paint.mode = .cover
+        }
+        return paint
+    }
 }

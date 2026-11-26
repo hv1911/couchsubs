@@ -2208,7 +2208,7 @@
       keepSize: mode === 'twin' };
   }
 
-  // Menüde yanına yazılan Türkçenin etiketi (TV 0.9.123; bilgisayar MenuLayout, #1365): "Menülerde İngilizcenin üstünü
+  // Menüde yanına yazılan Türkçenin etiketi (TV 0.9.124; bilgisayar MenuLayout, #1365): "Menülerde İngilizcenin üstünü
   // ört" kapalıyken Türkçe İngilizcenin yanına koyu, yarı saydam, köşeleri yuvarlak etikete açık renkle yazılır (haritanın
   // ya da desenli zeminin üstünde konturlu yazı okunmuyordu, beta.105). Etiket yazıyı sarar, çevresine payla taşar
   // (yerleşim değişmez); seçili satırda ters renkli. Eski bilgisayar label göndermez: zeminsiz, konturlu yazı sürer.
@@ -2220,9 +2220,44 @@
     return 'rgba(' + parseInt(hex.slice(1, 3), 16) + ',' + parseInt(hex.slice(3, 5), 16) + ',' + parseInt(hex.slice(5, 7), 16) + ',0.86)';
   }
 
+  function labelLuma(hex) {
+    return 0.299 * parseInt(hex.slice(1, 3), 16) + 0.587 * parseInt(hex.slice(3, 5), 16) + 0.114 * parseInt(hex.slice(5, 7), 16);
+  }
+
   function labelLight(hex) {
-    if (!phoneColor(hex)) return false;
-    return 0.299 * parseInt(hex.slice(1, 3), 16) + 0.587 * parseInt(hex.slice(3, 5), 16) + 0.114 * parseInt(hex.slice(5, 7), 16) > 160;
+    return phoneColor(hex) ? labelLuma(hex) > 160 : false;
+  }
+
+  // Seçili (ters renkli) satır: açık zemin, koyu ve zeminden belirgin biçimde ayrışan yazı (yakın tonlar ters çevrilmez).
+  function labelSelected(bg, fg) {
+    return labelLight(bg) && phoneColor(fg) && !labelLight(fg) && labelLuma(bg) - labelLuma(fg) >= 80;
+  }
+
+  // Gömülü dar aile yüklendi mi (CSS Font Loading; yoksa yüklü sayılır). Yüklenmeden ölçülen yazı yedek aileyle ölçülür:
+  // etiket o zaman yazıyı sarmaz, öğenin genişliğinde kalır (TV 0.9.124).
+  function familyReady(item) {
+    var family = exactFamily(item);
+    if (!family || !document.fonts || !document.fonts.check) return true;
+    try { return document.fonts.check((item.weight === 700 ? '700' : '400') + ' 20px ' + family); } catch (e) { return true; }
+  }
+
+  // Gömülü dar aile açılışta yüklenir (TV 0.9.124): ilk menü çizimi yedek aileyle ölçülmesin. Görünmez ama yerleşen bir öğe
+  // gerekir (display:none yazı tipini yükletmez).
+  function preloadFonts() {
+    if (!document.body || !document.body.appendChild) return;
+    try {
+      for (var w = 0; w < 2; w++) {
+        var span = document.createElement('span');
+        span.style.position = 'absolute';
+        span.style.left = '-10000px';
+        span.style.top = '0';
+        span.style.visibility = 'hidden';
+        span.style.fontFamily = EMBEDDED_CONDENSED;
+        span.style.fontWeight = w ? '700' : '400';
+        span.textContent = 'Aa';
+        document.body.appendChild(span);
+      }
+    } catch (e) {}
   }
 
   // Etiketteki yazı: özgün yazı açık renkse o renk (seçili satırın sarısı), koyuysa açık gri.
@@ -2371,7 +2406,7 @@
         img.style.top = (icon.box.top * height - top) + 'px';
         img.style.width = ((icon.box.right - icon.box.left) * width) + 'px';
         img.style.height = ((icon.box.bottom - icon.box.top) * height) + 'px';
-        // Görev kartının resmi köşeli kare (TV 0.9.123, bilgisayar MenuLayout), telefon bildiriminin kişi resmi yuvarlak.
+        // Görev kartının resmi köşeli kare (TV 0.9.124, bilgisayar MenuLayout), telefon bildiriminin kişi resmi yuvarlak.
         img.style.borderRadius = icon.square === true ? '0' : '50%';
         panel.appendChild(img);
       }
@@ -2402,16 +2437,39 @@
       return Math.ceil(pageRect(probe.getBoundingClientRect(), scale).width) + 1;
     }
     var placed = exactLayout(inputs, measure);
-    // Etiket yazıyı sarar (TV 0.9.123): genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde kalır; boş alan etiketle
+    // Etiket yazıyı sarar (TV 0.9.124): genişliği en uzun satır kadar, özgüne yaslı kenarı yerinde kalır; boş alan etiketle
     // dolmaz, şeridin etiketleri birbirine değmez.
     for (var li = 0; li < items.length; li++) {
-      if (!besideLabel(items[li])) continue;
-      var tight = 0;
-      for (var q = 0; q < placed[li].lines.length; q++) tight = Math.max(tight, measure(placed[li].lines[q], placed[li].fontSize, li));
+      if (!besideLabel(items[li]) || !familyReady(items[li])) continue;
+      var tight = 0, lineAt = lineStarts(items[li].text, placed[li].lines);
+      for (var q = 0; q < placed[li].lines.length; q++) {
+        var wide = measure(placed[li].lines[q], placed[li].fontSize, li);
+        // Satırdaki kumanda simgeleri de etiketin içinde kalır (style.css: 1.15em yükseklik, iki yanda 0.2em; kare simge
+        // yaklaşık 1.55em).
+        var stop = q + 1 < lineAt.length ? lineAt[q + 1] : items[li].text.length + 1;
+        for (var ic = 0; items[li].icons && ic < items[li].icons.length; ic++) {
+          var mark = items[li].icons[ic];
+          if (mark && typeof mark.at === 'number' && typeof mark.src === 'string' && mark.src.indexOf('data:image/') === 0 &&
+              mark.at >= lineAt[q] && mark.at < stop) wide += Math.ceil(1.55 * placed[li].fontSize);
+        }
+        tight = Math.max(tight, wide);
+      }
       if (tight <= 0 || tight >= placed[li].width) continue;
       if (inputs[li].align === 'right') placed[li].left += placed[li].width - tight;
       else if (inputs[li].align === 'center') placed[li].left += (placed[li].width - tight) / 2;
       placed[li].width = tight;
+    }
+    // Alt alta etiketlerin ince payı aradaki boşluğun yarısını aşmaz: sıkışık listede etiketler birbirine binmez.
+    for (var la = 0; la < items.length; la++) {
+      if (!besideLabel(items[la])) continue;
+      var room = Infinity;
+      for (var lb = 0; lb < items.length; lb++) {
+        if (lb === la || !besideLabel(items[lb])) continue;
+        var pa = placed[la], pb = placed[lb];
+        if (pa.left >= pb.left + pb.width || pb.left >= pa.left + pa.width) continue;
+        room = Math.min(room, pb.top >= pa.top ? pb.top - (pa.top + pa.height) : pa.top - (pb.top + pb.height));
+      }
+      placed[la].labelRoom = room;
     }
     host.removeChild(probe);
     var drawn = exactTwins(host, items, placed, width, height);
@@ -2428,7 +2486,7 @@
       el.style.height = place.height + 'px';
       var label = besideLabel(source);
       // Seçili (ters renkli: açık zemin, koyu yazı) satırın etiketi de ters renkli; seçim Türkçede de görünür.
-      var selected = label && labelLight(source.bg) && !labelLight(source.fg);
+      var selected = label && labelSelected(source.bg, source.fg);
       if (selected) label = source.bg;
       el.style.backgroundColor = mode === 'cover' ? source.bg : 'transparent';
       if (mode === 'beside' && !label) el.style.textShadow = exactHalo(source.fg, place.fontSize);
@@ -2436,6 +2494,7 @@
         // Etiketin zemini öğenin ilk çocuğu (öğeyle birlikte kayar ve gizlenir): yanlara pad, alta/üste ince pay kadar taşar;
         // tek katman, köşelerde dikiş yok; alt alta satırların etiketleri birbirine değmez.
         var pad = Math.max(2, Math.round(place.fontSize * 0.2)), padY = Math.max(1, Math.round(place.fontSize * 0.06));
+        if (place.labelRoom < Infinity) padY = Math.max(0, Math.min(padY, Math.floor(place.labelRoom / 2)));
         var chip = document.createElement('div');
         chip.className = 'exact-label';
         chip.style.position = 'absolute';
@@ -4532,6 +4591,7 @@
 
   platform.init();
   if (platform.reloadIfStale) platform.reloadIfStale(APP_VERSION);
+  preloadFonts();
   window.applyI18n();
   formatKeys();
   var savedBottom = load('bottom') || load('appBottom');
