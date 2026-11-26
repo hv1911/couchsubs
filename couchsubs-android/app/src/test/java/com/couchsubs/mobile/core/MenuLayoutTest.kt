@@ -77,4 +77,73 @@ class MenuLayoutTest {
             }
         }
     }
+
+    /**
+     * İkiz kartın kişi resmi kareden bulunur ([TextPainter.cardPortrait]): başlığa yakın resim bulunur; harita, harf taşması
+     * ve resimsiz kart resim sayılmaz. Ortak deneme dosyası fixtures/card-portrait.json.
+     */
+    @Test
+    fun cardPortraitSharedCases() {
+        val root = JSONObject(Fixtures.text("card-portrait.json"))
+        val width = root.getInt("width")
+        val height = root.getInt("height")
+        fun rgb(hex: String) = hex.substring(1).toInt(16)
+        val cases = root.getJSONArray("cases")
+        for (n in 0 until cases.length()) {
+            val c = cases.getJSONObject(n)
+            val id = c.getString("id")
+            val rects = c.getJSONArray("rects").let { a ->
+                (0 until a.length()).map { k ->
+                    val r = a.getJSONObject(k)
+                    val b = r.getJSONArray("box")
+                    intArrayOf(b.getInt(0), b.getInt(1), b.getInt(2), b.getInt(3)) to rgb(r.getString("color"))
+                }
+            }
+            val ground = rgb(c.getString("base"))
+            val color = { x: Int, y: Int ->
+                rects.lastOrNull { (b, _) -> x >= b[0] && x < b[2] && y >= b[1] && y < b[3] }?.second ?: ground
+            }
+            val covers = c.getJSONArray("covers").let { a ->
+                (0 until a.length()).map { k ->
+                    val v = a.getJSONArray(k)
+                    TextBox(v.getDouble(0) / width, v.getDouble(1) / height, v.getDouble(2) / width, v.getDouble(3) / height)
+                }
+            }
+            val card = c.getJSONArray("card").let { a -> (0 until a.length()).map { a.getInt(it) } }
+            val found = TextPainter.cardPortrait(covers, card, c.getString("background"), c.getDouble("line") / height, width, height, color)
+            if (c.isNull("expect")) {
+                assertNull("$id: resim bulunmamalı, bulunan $found", found)
+                continue
+            }
+            val e = c.getJSONArray("expect")
+            near(TextBox(e.getDouble(0) / width, e.getDouble(1) / height, e.getDouble(2) / width, e.getDouble(3) / height), found, id)
+        }
+    }
+
+    /** İkiz kartta kişi resmi yoksa kareden aranan resim bütün parçalara konur ve ikiz kutu resmi de içine alır. */
+    @Test
+    fun cardTwinTakesTheFoundPortrait() {
+        val title = TextPaint("#1E2A5A", 0.04, TextBox(0.30, 0.30, 0.50, 0.34))
+        val body = TextPaint("#1E2A5A", 0.04, TextBox(0.24, 0.36, 0.60, 0.44))
+        val targets = listOf(title, body).map { TextPainter.Target(it.cover, 0.04, 1, "#1E2A5A", "#F0F0F0", false, "left") }
+        val face = TextBox(0.24, 0.29, 0.28, 0.35)
+        var asked = 0
+        val result = MenuLayout.locked(listOf(title, body), targets, listOf(listOf(0, 1)), false, 1.0) { _, fill ->
+            asked++
+            assertEquals("#1E2A5A", fill)
+            face to "data:image/png;base64,AA=="
+        }
+        assertEquals(1, asked)
+        for (p in result) {
+            assertEquals(TextPaint.MODE_TWIN, p.mode)
+            assertEquals(face, p.portrait)
+            assertEquals("data:image/png;base64,AA==", p.portraitImage)
+            assertTrue("ikiz resmi içine alır", p.twin!!.left <= face.left && p.portraitTwin!!.top > p.twin!!.top - 1e-9)
+        }
+        // Görev listesindeki kart ikiz kurulmaz: resim de aranmaz.
+        val row = TextPaint("#1E2A5A", 0.04, TextBox(0.24, 0.10, 0.40, 0.14))
+        val listTargets = listOf(TextPainter.Target(row.cover, 0.04, 1, "#1E2A5A", "#F0F0F0", false, "left")) + targets
+        MenuLayout.locked(listOf(row, title, body), listTargets, listOf(listOf(1, 2)), false, 1.0) { _, _ -> asked++; null }
+        assertEquals(1, asked)
+    }
 }

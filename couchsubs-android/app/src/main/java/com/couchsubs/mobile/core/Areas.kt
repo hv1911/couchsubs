@@ -733,7 +733,15 @@ class RegionWatcher(
             val paints = if (menuCover != null && measuredPaints.size == targets.size) {
                 val cardParts = painted.indices.filter { blocks[painted[it]].cardNo >= 0 }
                     .groupBy { blocks[painted[it]].cardNo }.toSortedMap().values.toList()
-                MenuLayout.locked(measuredPaints, targets, cardParts, menuCover, measured.width.toDouble() / maxOf(1, measured.height))
+                // İkiz kartın kişi resmi ölçümde bulunmadıysa kareden aranır (ikiz kart resimsiz kalmasın).
+                val covers = measuredPaints.map { it.cover }
+                val pixelColor = measuredColor ?: { x, y -> measured.at(x, y).let { (it shl 16) or (it shl 8) or it } }
+                MenuLayout.locked(measuredPaints, targets, cardParts, menuCover, measured.width.toDouble() / maxOf(1, measured.height)) { card, fill ->
+                    val heights = card.map { targets[it].lineHeight }.sorted()
+                    val face = if (heights.isEmpty()) null
+                        else TextPainter.cardPortrait(covers, card, fill, heights[heights.size / 2], measured.width, measured.height, pixelColor)
+                    face?.let { it to TextPainter.portraitImage(it, measured.width, measured.height, pixelColor) }
+                }
             } else measuredPaints
             val aligned = styles.toMutableList()
             for ((k, i) in painted.withIndex()) {
@@ -1205,6 +1213,8 @@ class RegionWatcher(
 
     private class State {
         var signature: ByteArray? = null
+        /** Son okumadaki menü biçimi ([menuCovers]; menü dışı alanda null): ayar değişince görüntü durgun olsa da yeniden okunur. */
+        var menuCover: Boolean? = null
         /** Günlüğe son yazılan, güveni düşük olduğu için çevrilmeyen satırlar (aynı satırlar her turda yeniden yazılmaz). */
         var unsureLogged: List<String> = emptyList()
         /** Bir önceki turun izi ([BIG_CHANGE_SHARE] için; [signature] okuma hatasında silinir). */
@@ -1502,8 +1512,11 @@ class RegionWatcher(
             if (started != session) return
             states.getOrPut(area.id) { State() }
         }
-        val changed = state.signature?.let { RegionSignature.changed(it, crop.signature) } ?: true
+        // Menüde biçim ayarı (üstünü ört / yanına yaz) değişince görüntü durgun olsa da yeniden okunur ve çizilir.
+        val cover = if (area.auto && area.menu) menuCovers() else null
+        val changed = (state.signature?.let { RegionSignature.changed(it, crop.signature) } ?: true) || state.menuCover != cover
         state.signature = crop.signature
+        state.menuCover = cover
         val before = state.passSignature
         state.passSignature = crop.signature
         if (!changed) {

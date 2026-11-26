@@ -876,7 +876,12 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
                             ["bottom"] = Round(edge.Bottom), ["left"] = Round(edge.Left),
                         };
                     if (paint.PortraitImage is { } image && paint.PortraitTwin is { } at)
-                        json["icon"] = new SortedDictionary<string, object> { ["src"] = image, ["box"] = BoxJson(at) };
+                    {
+                        var icon = new SortedDictionary<string, object> { ["src"] = image, ["box"] = BoxJson(at) };
+                        // Görev kartının resmi köşeli kare (TV uygulaması 0.9.122; eski TV yuvarlak çizer).
+                        if (paint.PortraitSquare) icon["square"] = true;
+                        json["icon"] = icon;
+                    }
                 }
             }
         }

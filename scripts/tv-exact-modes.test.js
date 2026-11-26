@@ -213,7 +213,7 @@ test('tek satırlık istemin dev ikizi yazının çevresine kırpılır; aynı s
 });
 
 // Menüde "yanına yaz" (TV 0.9.122, bilgisayar MenuLayout, #1365): beta.105'te haritanın üstüne zeminsiz yazılan Türkçe
-// desenli zeminde okunmuyordu. label gelince Türkçe koyu, yarı saydam, yuvarlak köşeli etikette, açık renkle ve konturuz
+// desenli zeminde okunmuyordu. label gelince Türkçe koyu, yarı saydam, yuvarlak köşeli etikette, açık renkle ve kontursuz
 // yazılır; özgün yazı açık kalır, etiket yazıyı sarar ve çevresine taşar. Özgün yazı açık renkse (gri liste, sarı vurgu) o renk
 // kalır, koyuysa (ters renkli seçili satır) açık gri olur.
 // label'sız beside (eski bilgisayar) zeminsiz, konturlu kalır.
@@ -242,4 +242,20 @@ test('menüde yanına yazılan Türkçe koyu etikette, açık renkle; özgün a�
     assert.notEqual(el.shadow, 'none', el.text + ': konturlu');
     assert.doesNotMatch(el.cls, /\blabel\b/, el.text + ': etiket sınıfı yok');
   }
+});
+
+// Menüdeki görev kartının ikizi (TV 0.9.122, bilgisayar MenuLayout, #1365): kartın kişi resmi ikizde de köşeli kare
+// (icon.square); telefon bildiriminin kişi resmi eskisi gibi yuvarlak.
+test('görev kartının ikizindeki resim köşeli kare, telefon bildiriminin resmi yuvarlak', { skip: !browser && 'tarayıcı yok' }, () => {
+  const card = (square) => ({ text: 'ADA HAYALLERİ', box: px(372, 196, 662, 244), line: 48 / H, lineH: 48 / H,
+    cover: px(370, 194, 664, 246), bg: '#14285A', fg: '#FFFFFF', weight: 700, upper: true, align: 'left', mode: 'twin',
+    scale: 1, radius: 0, twinBox: px(250, 480, 920, 760), spot: px(370, 494, 664, 546), spotRoom: px(370, 494, 900, 546),
+    icon: Object.assign({ src: PNG, box: px(282, 496, 354, 570) }, square ? { square: true } : {}),
+    surface: { background: '#14285A', foreground: '#FFFFFF', flat: true }, style: { align: 'left', bold: true, condensed: false, upper: true } });
+  const square = render([card(true)]).find(el => el.img);
+  const round = render([card(false)]).find(el => el.img);
+  assert.ok(square && round, 'resim çizildi');
+  assert.equal(square.img.radius, '0px', 'kartın resmi köşeli: ' + square.img.radius);
+  assert.equal(round.img.radius, '50%', 'bildirimin resmi yuvarlak: ' + round.img.radius);
+  assert.ok(Math.abs(square.img.left - 282) <= 1 && Math.abs(square.img.top - 496) <= 1, 'resim ikizde kendi yerinde');
 });

@@ -93,4 +93,76 @@ final class MenuLayoutTests: XCTestCase {
             }
         }
     }
+
+    private struct PortraitFixture: Decodable {
+        struct Rect: Decodable { let box: [Int]; let color: String }
+        struct Case: Decodable {
+            let id: String
+            let base: String
+            let rects: [Rect]
+            let covers: [[Double]]
+            let card: [Int]
+            let background: String
+            let line: Double
+            let expect: [Double]?
+        }
+        let width: Int
+        let height: Int
+        let cases: [Case]
+    }
+
+    /// İkiz kartın kişi resmi kareden bulunur (`TextPainter.cardPortrait`): başlığa yakın resim bulunur; harita, harf
+    /// taşması ve resimsiz kart resim sayılmaz. Ortak deneme dosyası Fixtures/card-portrait.json.
+    func testCardPortraitSharedCases() throws {
+        let url = Bundle.module.url(forResource: "Fixtures", withExtension: nil)!.appendingPathComponent("card-portrait.json")
+        let fixture = try JSONDecoder().decode(PortraitFixture.self, from: Data(contentsOf: url))
+        let w = Double(fixture.width), h = Double(fixture.height)
+        for c in fixture.cases {
+            let rects = c.rects.map { (box: $0.box, color: TextPainter.rgb($0.color)) }
+            let ground = TextPainter.rgb(c.base)
+            let covers = c.covers.map { TextBox(left: $0[0] / w, top: $0[1] / h, right: $0[2] / w, bottom: $0[3] / h) }
+            let found = TextPainter.cardPortrait(covers: covers, card: c.card, background: c.background, line: c.line / h,
+                                                 width: fixture.width, height: fixture.height) { x, y in
+                rects.last { x >= $0.box[0] && x < $0.box[2] && y >= $0.box[1] && y < $0.box[3] }?.color ?? ground
+            }
+            guard let e = c.expect else {
+                XCTAssertNil(found, "\(c.id): resim bulunmamalı")
+                continue
+            }
+            near([e[0] / w, e[1] / h, e[2] / w, e[3] / h], found, c.id)
+        }
+    }
+
+    /// İkiz kartta kişi resmi yoksa kareden aranan resim bütün parçalara konur ve ikiz kutu resmi de içine alır.
+    func testCardTwinTakesTheFoundPortrait() {
+        let title = TextPaint(background: "#1E2A5A", pitch: 0.04, cover: TextBox(left: 0.30, top: 0.30, right: 0.50, bottom: 0.34))
+        let body = TextPaint(background: "#1E2A5A", pitch: 0.04, cover: TextBox(left: 0.24, top: 0.36, right: 0.60, bottom: 0.44))
+        let targets = [title, body].map {
+            TextPainter.Target(box: $0.cover, lineHeight: 0.04, rows: 1, background: "#1E2A5A", foreground: "#F0F0F0",
+                               upper: false, align: .left)
+        }
+        let face = TextBox(left: 0.24, top: 0.29, right: 0.28, bottom: 0.35)
+        var asked = 0
+        let result = MenuLayout.locked([title, body], targets: targets, cards: [[0, 1]], cover: false, aspect: 1) { _, fill in
+            asked += 1
+            XCTAssertEqual(fill, "#1E2A5A")
+            return (box: face, image: "data:image/png;base64,AA==")
+        }
+        XCTAssertEqual(asked, 1)
+        for p in result {
+            XCTAssertEqual(p.mode, .twin)
+            XCTAssertEqual(p.portrait, face)
+            XCTAssertEqual(p.portraitImage, "data:image/png;base64,AA==")
+            XCTAssertTrue(p.twin!.left <= face.left && p.portraitTwin!.top > p.twin!.top - 1e-9, "ikiz resmi içine alır")
+        }
+        // Görev listesindeki kart ikiz kurulmaz: resim de aranmaz.
+        let row = TextPaint(background: "#1E2A5A", pitch: 0.04, cover: TextBox(left: 0.24, top: 0.10, right: 0.40, bottom: 0.14))
+        let listTargets = [TextPainter.Target(box: row.cover, lineHeight: 0.04, rows: 1, background: "#1E2A5A",
+                                              foreground: "#F0F0F0", upper: false, align: .left)] + targets
+        _ = MenuLayout.locked([row, title, body], targets: listTargets, cards: [[1, 2]], cover: false, aspect: 1) { _, _ in
+            asked += 1
+            return nil
+        }
+        XCTAssertEqual(asked, 1)
+    }
 }

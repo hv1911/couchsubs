@@ -49,7 +49,8 @@ struct ExactScreenText: View {
         var radius: CGFloat
         var fill: Color
         var tail: String?
-        var portrait: (image: CGImage, frame: CGRect)?
+        /// `square`: görev kartının resmi köşeli kare (`TextPaint.portraitSquare`); değilse yuvarlak.
+        var portrait: (image: CGImage, frame: CGRect, square: Bool)?
         /// Kenar çizgisi: rengi ve her yandaki kalınlığı (piksel; kutunun dışında).
         var edge: (color: Color, top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)?
     }
@@ -92,11 +93,11 @@ struct ExactScreenText: View {
             // Yükseklik de içeriğe göre: satırı kırılan Türkçe kutuyu aşağı uzatır, alt iç boşluk özgündeki kadar kalır.
             let bottom = members.map { placed[$0].top + placed[$0].height }.max() ?? box.bottom * size.height
             let spotBottom = members.compactMap { items[$0].paint?.spot?.bottom }.max().map { $0 * size.height } ?? bottom
-            var portrait: (image: CGImage, frame: CGRect)?
+            var portrait: (image: CGImage, frame: CGRect, square: Bool)?
             if let at = paint.portraitTwin, let image = image(paint.portraitImage) {
                 let frame = CGRect(x: at.left * size.width, y: at.top * size.height, width: (at.right - at.left) * size.width,
                                    height: (at.bottom - at.top) * size.height)
-                portrait = (image, frame)
+                portrait = (image, frame, paint.portraitSquare)
                 right = max(right, frame.maxX)
             }
             let top = box.top * size.height
@@ -131,11 +132,16 @@ struct ExactScreenText: View {
                     .frame(width: twin.frame.width, height: twin.frame.height + 0.6 * r)
             }
             if let portrait = twin.portrait {
-                Image(decorative: portrait.image, scale: 1)
+                let picture = Image(decorative: portrait.image, scale: 1)
                     .resizable()
                     .frame(width: portrait.frame.width, height: portrait.frame.height)
-                    .clipShape(Ellipse())
-                    .offset(x: portrait.frame.minX - twin.frame.minX, y: portrait.frame.minY - twin.frame.minY)
+                let at = CGSize(width: portrait.frame.minX - twin.frame.minX, height: portrait.frame.minY - twin.frame.minY)
+                // Görev kartının resmi köşeli kare (TV ile aynı), telefon bildiriminin kişi resmi yuvarlak.
+                if portrait.square {
+                    picture.offset(at)
+                } else {
+                    picture.clipShape(Ellipse()).offset(at)
+                }
             }
         }
         .offset(x: twin.frame.minX, y: twin.frame.minY)
@@ -210,7 +216,7 @@ struct ExactScreenText: View {
         case .right: .trailing
         default: .leading
         }
-        // Etiketli yanına yazmada (menü, "yanına yaz") yazı etikette açık renkle, konturuz.
+        // Etiketli yanına yazmada (menü, "yanına yaz") yazı etikette açık renkle, kontursuz.
         let label = mode == .beside ? color(item.paint?.label) : nil
         let foreground = label != nil ? labelInk(item.style?.foreground) : color(item.style?.foreground) ?? .white
         let halo = outline(item.style?.foreground)

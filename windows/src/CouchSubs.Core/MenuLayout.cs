@@ -19,9 +19,10 @@ namespace CouchSubs.Core;
 /// <item>A, yanına yaz (varsayılan): her satırın Türkçesi İngilizcesinin hemen yanına, koyu zeminli etikete (<c>label</c>)
 /// yazılır: sola yaslı satırda sağına, sağa yaslı satırda (tuş çubuğu) soluna; satırın simgesi ve komşu yazılar örtülmez.
 /// Yanına sığmayan etiket (sekme şeridi, sıkışık tuş çubuğu) altına, olmazsa üstüne yazılır; şeridin bir sekmesi altına
-/// yazıldıysa yakınındaki öbür sekmeler de altına yazılır (şerit bir bütün). Hiçbir yere sığmayan satır örtülür. Haritanın görev kartının (<c>cards</c>) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde ikiz
-/// kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı kartla hizalı
-/// başka yazılar) kartın satırları da yanına yazılır.</item>
+/// yazıldıysa yakınındaki öbür sekmeler de altına yazılır (şerit bir bütün). Hiçbir yere sığmayan satır örtülür.
+/// Haritanın görev kartının (<c>cards</c>) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
+/// resmiyle ikiz kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı
+/// kartla hizalı başka yazılar) kartın satırları da yanına yazılır.</item>
 /// <item>İki biçimde de satırın üstüne/altına küçük yazma, haritaya uzak ikiz kutu ve iki satırı tek kutuda birleştirme
 /// olmaz; etiketler başka yazının ya da ikiz kartın üstüne binmez.</item>
 /// </list>
@@ -61,9 +62,13 @@ public static class MenuLayout
     /// <summary>
     /// Menüdeki çizimler ayardaki biçime kilitlenir. <paramref name="cards"/>: görev kartlarının parçaları (her kart için
     /// <paramref name="paints"/> sıraları); <paramref name="cover"/>: B (üstünü ört), false: A (yanına yaz).
+    /// <paramref name="portrait"/>: ikiz kurulacak kartın parçalarında kişi resmi yoksa kartın parçaları ve zemini verilip resim
+    /// (kutusu ve kesilmiş görüntüsü) kareden aranır (<see cref="TextPainter.CardPortrait(IReadOnlyList{TextBox}, IReadOnlyList{int}, string, double, Frame)"/>;
+    /// ikiz kart resimsiz kalmasın).
     /// </summary>
     public static List<TextPaint> Locked(IReadOnlyList<TextPaint> paints, IReadOnlyList<TextPainter.Target> targets,
-                                         IReadOnlyList<IReadOnlyList<int>> cards, bool cover, double aspect)
+                                         IReadOnlyList<IReadOnlyList<int>> cards, bool cover, double aspect,
+                                         Func<IReadOnlyList<int>, string, (TextBox Box, string? Image)?>? portrait = null)
     {
         if (paints.Count != targets.Count || paints.Count == 0) return paints.ToList();
         var result = paints.Select(Plain).ToList();
@@ -75,7 +80,7 @@ public static class MenuLayout
         {
             var card = raw.Where(m => m >= 0 && m < paints.Count && !done.Contains(m)).ToList();
             if (card.Count == 0) continue;
-            var made = CardTwin(card, paints, targets, taken, twins, aspect);
+            var made = CardTwin(card, paints, targets, taken, twins, aspect, portrait);
             if (made is null) continue;
             foreach (var (m, paint) in made) result[m] = paint;
             done.UnionWith(card);
@@ -114,7 +119,7 @@ public static class MenuLayout
     internal static TextPaint Plain(TextPaint paint) => paint with
     {
         Mode = PaintMode.Cover, Spot = null, SpotRoom = null, Twin = null, Radius = 0, Scale = 1, Tail = null,
-        Portrait = null, PortraitTwin = null, PortraitImage = null, Edge = null, Label = null,
+        Portrait = null, PortraitTwin = null, PortraitImage = null, PortraitSquare = false, Edge = null, Label = null,
     };
 
     internal static double OverlapY(TextBox a, TextBox b) => Math.Max(0, Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top));
@@ -211,20 +216,30 @@ public static class MenuLayout
     /// </summary>
     internal static List<(int Index, TextPaint Paint)>? CardTwin(IReadOnlyList<int> card, IReadOnlyList<TextPaint> paints,
                                                                 IReadOnlyList<TextPainter.Target> targets, IReadOnlyList<TextBox> taken,
-                                                                IReadOnlyList<TextBox> twins, double aspect)
+                                                                IReadOnlyList<TextBox> twins, double aspect,
+                                                                Func<IReadOnlyList<int>, string, (TextBox Box, string? Image)?>? portrait = null)
     {
-        var union = taken[card[0]];
-        foreach (var m in card)
-        {
-            union = union.Union(taken[m]);
-            if (paints[m].Portrait is { } face) union = union.Union(face);
-        }
         var heights = card.Select(m => targets[m].LineHeight).OrderBy(x => x).ToList();
         var line = Math.Max(1e-6, heights[heights.Count / 2]);
         double padY = CardPadLines * line, padX = padY / Math.Max(0.1, aspect);
         var left = card.Min(m => taken[m].Left);
         if (Enumerable.Range(0, paints.Count).Any(j => !card.Contains(j) && Math.Abs(taken[j].Left - left) <= ColumnLines * line / Math.Max(0.1, aspect)))
             return null;
+        // Kartın zemini: en büyük parçanın (açıklama) ölçülen zemini.
+        static double Area(TextBox b) => (b.Right - b.Left) * (b.Bottom - b.Top);
+        var largest = card.Aggregate((a, b) => Area(paints[b].Cover) > Area(paints[a].Cover) ? b : a);
+        var fill = paints[largest].Background;
+        // Kişi resmi: ölçümün bulduğu ya da kareden aranan; ikizde kartın bütün parçalarında aynı (TV ilkinden çizer).
+        var face = card.Select(m => paints[m].Portrait).FirstOrDefault(f => f is not null);
+        var image = card.Select(m => paints[m].PortraitImage).FirstOrDefault(i => i is not null);
+        if (face is null && portrait?.Invoke(card, fill) is { } found)
+        {
+            face = found.Box;
+            image = found.Image;
+        }
+        var union = taken[card[0]];
+        foreach (var m in card) union = union.Union(taken[m]);
+        if (face is { } seen) union = union.Union(seen);
         var box = new TextBox(union.Left - padX, union.Top - padY, union.Right + padX, union.Bottom + padY);
         var step = (box.Bottom - box.Top) + CardGapLines * line;
         var blockers = Enumerable.Range(0, paints.Count).Where(j => !card.Contains(j)).Select(j => taken[j]).Concat(twins).ToList();
@@ -234,10 +249,6 @@ public static class MenuLayout
         else if (Free(Shifted(box, -step))) dy = -step;
         else return null;
         var twin = Shifted(box, dy);
-        // Kartın zemini: en büyük parçanın (açıklama) ölçülen zemini.
-        static double Area(TextBox b) => (b.Right - b.Left) * (b.Bottom - b.Top);
-        var largest = card.Aggregate((a, b) => Area(paints[b].Cover) > Area(paints[a].Cover) ? b : a);
-        var fill = paints[largest].Background;
         return card.Select(m =>
         {
             var spot = Shifted(paints[m].Cover, dy);
@@ -248,9 +259,9 @@ public static class MenuLayout
                 SpotRoom = new TextBox(spot.Left, spot.Top, Math.Max(spot.Right, twin.Right - padX), spot.Bottom),
                 Edge = paints[m].Edge,
             };
-            if (paints[m].Portrait is { } face)
+            if (face is { } picture)
             {
-                p = p with { Portrait = face, PortraitTwin = Shifted(face, dy), PortraitImage = paints[m].PortraitImage };
+                p = p with { Portrait = picture, PortraitTwin = Shifted(picture, dy), PortraitImage = image, PortraitSquare = true };
             }
             return (m, p);
         }).ToList();

@@ -183,7 +183,7 @@ internal sealed class ScreenTextCanvas : Canvas
             var paint = item.Paint!;
             var place = placements[i];
             // Menüde yanına yazılan Türkçenin etiketi (TextPaint.Label, MenuLayout; TV 0.9.122 ile aynı): koyu, yarı saydam,
-            // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve konturuz.
+            // yuvarlak köşeli; yazının çevresine taşar, yazı etikette açık renkle ve kontursuz.
             var label = paint.Mode == PaintMode.Beside && Parse(paint.Label, Colors.Transparent) is var chip && chip != Colors.Transparent
                 ? chip : (Color?)null;
             var ink = Parse(item.Style?.Foreground, Colors.White);
@@ -319,7 +319,8 @@ internal sealed class ScreenTextCanvas : Canvas
             var picture = new Image
             {
                 Source = image, Width = w, Height = h, Stretch = Stretch.Fill,
-                Clip = new EllipseGeometry(new Point(w / 2, h / 2), w / 2, h / 2),
+                // Görev kartının resmi köşeli kare (TV ile aynı), telefon bildiriminin kişi resmi yuvarlak.
+                Clip = face.PortraitSquare ? null : new EllipseGeometry(new Point(w / 2, h / 2), w / 2, h / 2),
             };
             SetLeft(picture, box.Left * width);
             SetTop(picture, box.Top * height);

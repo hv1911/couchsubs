@@ -15,9 +15,9 @@ import Foundation
 ///   yazılır: sola yaslı satırda sağına, sağa yaslı satırda (tuş çubuğu) soluna; satırın simgesi ve komşu yazılar
 ///   örtülmez. Yanına sığmayan etiket (sekme şeridi, sıkışık tuş çubuğu) altına, olmazsa üstüne yazılır; şeridin bir
 ///   sekmesi altına yazıldıysa yakınındaki öbür sekmeler de altına yazılır (şerit bir bütün). Hiçbir yere sığmayan satır
-///   örtülür. Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın
-///   zemininde ikiz kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol
-///   kenarı kartla hizalı başka yazılar) kartın satırları da yanına yazılır.
+///   örtülür. Haritanın görev kartının (`cards`) çevirisi kartın hemen altına (yer yoksa üstüne), kartın zemininde, kişi
+///   resmiyle ikiz kart olarak gelir; ikisine de yer yoksa ya da kart bir listenin parçasıysa (Görevler ekranı: sol kenarı
+///   kartla hizalı başka yazılar) kartın satırları da yanına yazılır.
 /// - İki biçimde de satırın üstüne/altına küçük yazma, haritaya uzak ikiz kutu ve iki satırı tek kutuda birleştirme olmaz;
 ///   etiketler başka yazının ya da ikiz kartın üstüne binmez.
 ///
@@ -52,9 +52,12 @@ public enum MenuLayout {
     public static let columnLines = 1.0
 
     /// Menüdeki çizimler ayardaki biçime kilitlenir. `cards`: görev kartlarının parçaları (her kart için `paints`
-    /// sıraları); `cover`: B (üstünü ört), false: A (yanına yaz).
+    /// sıraları); `cover`: B (üstünü ört), false: A (yanına yaz). `portrait`: ikiz kurulacak kartın parçalarında kişi
+    /// resmi yoksa kartın parçaları ve zemini verilip resim (kutusu ve kesilmiş görüntüsü) kareden aranır
+    /// (`TextPainter.cardPortrait`; ikiz kart resimsiz kalmasın).
     public static func locked(_ paints: [TextPaint], targets: [TextPainter.Target], cards: [[Int]], cover: Bool,
-                              aspect: Double) -> [TextPaint] {
+                              aspect: Double,
+                              portrait: (([Int], String) -> (box: TextBox, image: String?)?)? = nil) -> [TextPaint] {
         guard paints.count == targets.count, !paints.isEmpty else { return paints }
         var result = paints.map(plain)
         if cover { return result }
@@ -64,7 +67,8 @@ public enum MenuLayout {
         for card in cards {
             let card = card.filter { $0 >= 0 && $0 < paints.count && !done.contains($0) }
             guard !card.isEmpty,
-                  let made = cardTwin(card, paints: paints, targets: targets, taken: taken, twins: twins, aspect: aspect)
+                  let made = cardTwin(card, paints: paints, targets: targets, taken: taken, twins: twins, aspect: aspect,
+                                      portrait: portrait)
             else { continue }
             for (m, paint) in made { result[m] = paint }
             done.formUnion(card)
@@ -109,6 +113,7 @@ public enum MenuLayout {
         p.portrait = nil
         p.portraitTwin = nil
         p.portraitImage = nil
+        p.portraitSquare = false
         p.edge = nil
         p.label = nil
         return p
@@ -191,12 +196,8 @@ public enum MenuLayout {
     /// üstüne binmez. İkisine de yer yoksa ya da kart bir listenin parçasıysa nil (kartın satırları yanına yazılır; Görevler
     /// ekranında son görev ikiz kart, öbürleri yanında çiziliyordu).
     static func cardTwin(_ card: [Int], paints: [TextPaint], targets: [TextPainter.Target], taken: [TextBox],
-                         twins: [TextBox], aspect: Double) -> [(Int, TextPaint)]? {
-        var union = taken[card[0]]
-        for m in card {
-            union = union.union(taken[m])
-            if let face = paints[m].portrait { union = union.union(face) }
-        }
+                         twins: [TextBox], aspect: Double,
+                         portrait: (([Int], String) -> (box: TextBox, image: String?)?)? = nil) -> [(Int, TextPaint)]? {
         let heights = card.map { targets[$0].lineHeight }.sorted()
         let line = max(1e-6, heights[heights.count / 2])
         let padY = cardPadLines * line, padX = padY / max(0.1, aspect)
@@ -204,6 +205,20 @@ public enum MenuLayout {
         if paints.indices.contains(where: { !card.contains($0) && abs(taken[$0].left - left) <= columnLines * line / max(0.1, aspect) }) {
             return nil
         }
+        // Kartın zemini: en büyük parçanın (açıklama) ölçülen zemini.
+        func area(_ b: TextBox) -> Double { (b.right - b.left) * (b.bottom - b.top) }
+        let largest = card.max { area(paints[$0].cover) < area(paints[$1].cover) }!
+        let fill = paints[largest].background
+        // Kişi resmi: ölçümün bulduğu ya da kareden aranan; ikizde kartın bütün parçalarında aynı (TV ilkinden çizer).
+        var face = card.lazy.compactMap { paints[$0].portrait }.first
+        var image = card.lazy.compactMap { paints[$0].portraitImage }.first
+        if face == nil, let found = portrait?(card, fill) {
+            face = found.box
+            image = found.image
+        }
+        var union = taken[card[0]]
+        for m in card { union = union.union(taken[m]) }
+        if let face { union = union.union(face) }
         let box = TextBox(left: union.left - padX, top: union.top - padY, right: union.right + padX, bottom: union.bottom + padY)
         let step = (box.bottom - box.top) + cardGapLines * line
         let blockers = paints.indices.filter { !card.contains($0) }.map { taken[$0] } + twins
@@ -215,10 +230,6 @@ public enum MenuLayout {
         else if free(shifted(box, dy: -step)) { dy = -step }
         else { return nil }
         let twin = shifted(box, dy: dy)
-        // Kartın zemini: en büyük parçanın (açıklama) ölçülen zemini.
-        func area(_ b: TextBox) -> Double { (b.right - b.left) * (b.bottom - b.top) }
-        let largest = card.max { area(paints[$0].cover) < area(paints[$1].cover) }!
-        let fill = paints[largest].background
         return card.map { m in
             var p = plain(paints[m])
             p.mode = .twin
@@ -231,10 +242,11 @@ public enum MenuLayout {
             let spot = shifted(paints[m].cover, dy: dy)
             p.spot = spot
             p.spotRoom = TextBox(left: spot.left, top: spot.top, right: max(spot.right, twin.right - padX), bottom: spot.bottom)
-            if let face = paints[m].portrait {
+            if let face {
                 p.portrait = face
                 p.portraitTwin = shifted(face, dy: dy)
-                p.portraitImage = paints[m].portraitImage
+                p.portraitImage = image
+                p.portraitSquare = true
             }
             p.edge = paints[m].edge
             return (m, p)
